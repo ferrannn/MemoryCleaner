@@ -1,0 +1,27 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{CE38AC75-E6DF-41C1-A8A3-57D15EFA2B63}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MemoryCleaner", "src\MemoryCleaner\MemoryCleaner.csproj", "{49464F3B-C178-4A24-977C-4A6B5D6FBD70}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{49464F3B-C178-4A24-977C-4A6B5D6FBD70}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{49464F3B-C178-4A24-977C-4A6B5D6FBD70}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{49464F3B-C178-4A24-977C-4A6B5D6FBD70}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{49464F3B-C178-4A24-977C-4A6B5D6FBD70}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{49464F3B-C178-4A24-977C-4A6B5D6FBD70} = {CE38AC75-E6DF-41C1-A8A3-57D15EFA2B63}
+	EndGlobalSection
+EndGlobal

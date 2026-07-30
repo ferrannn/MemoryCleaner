@@ -1,0 +1,16 @@
+## Build results
+bin/
+obj/
+publish/
+publish-framework-dependent/
+*.user
+*.suo
+.vs/
+
+## Rider / VS
+.idea/
+*.userprefs
+
+## OS
+Thumbs.db
+Desktop.ini
