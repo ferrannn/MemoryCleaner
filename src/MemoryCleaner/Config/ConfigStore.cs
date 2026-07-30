@@ -20,7 +20,11 @@ internal static class ConfigStore
             if (File.Exists(Path_))
             {
                 var cfg = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(Path_), Opts);
-                if (cfg != null) return cfg;
+                if (cfg != null)
+                {
+                    cfg.Sanitize(); // 钳制手改配置中的非法值
+                    return cfg;
+                }
             }
         }
         catch

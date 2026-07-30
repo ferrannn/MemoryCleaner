@@ -9,9 +9,9 @@
     <AssemblyName>MemoryCleaner</AssemblyName>
     <RootNamespace>MemoryCleaner</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <Version>1.0.0</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
+    <Version>1.1.0</Version>
     <Product>MemoryCleaner</Product>
     <Description>轻量级自定义定时内存清理工具</Description>
     <ApplicationIcon>app.ico</ApplicationIcon>
@@ -24,10 +24,14 @@
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
-  <!-- 轻量化：裁剪未用程序集（WinForms 兼容部分裁剪）。压缩由发布命令控制 -->
+  <!-- 轻量化：裁剪未用程序集 + 关闭未用运行时特性以减小自包含体积 -->
   <PropertyGroup>
     <PublishTrimmed>false</PublishTrimmed>
     <TrimMode>partial</TrimMode>
+    <EventSourceSupport>false</EventSourceSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <HttpActivityPropagationSupport>false</HttpActivityPropagationSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
   </PropertyGroup>
 
 </Project>

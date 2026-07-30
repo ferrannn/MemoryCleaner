@@ -16,7 +16,7 @@ internal sealed class AboutForm : Form
         {
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
-            Text = "MemoryCleaner v1.0.0\n\n轻量级自定义定时内存清理工具\n\n支持：工作集 / 系统缓存 / 高占用进程\n触发：阈值 / 固定间隔 / 定时点\n\nMIT License",
+            Text = "MemoryCleaner v1.1\n\n轻量级自定义定时内存清理工具\n\n支持：工作集 / 系统缓存 / 高占用进程\n触发：阈值 / 固定间隔 / 定时点\n\nMIT License",
         };
         Controls.Add(lbl);
     }

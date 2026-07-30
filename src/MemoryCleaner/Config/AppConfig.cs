@@ -35,8 +35,27 @@ public sealed class AppConfig
     // ---------- 行为 ----------
     public bool RunAtStartup { get; set; } = false;
     public bool ShowNotification { get; set; } = true;
+    public bool CheckUpdateOnStartup { get; set; } = true;   // 启动时检查更新
     public int MinIntervalSeconds { get; set; } = 60;         // 两次清理最小间隔（防重入/防过度）
 
     [JsonIgnore]
     public HashSet<string> WhitelistSet => new(ProcessWhitelist, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 钳制所有数值到安全范围，防止手动编辑 config.json 造成失控清理
+    /// （如 ThresholdPercent=0 或 MinIntervalSeconds=0 导致每个 Tick 都全量清理）。
+    /// </summary>
+    public void Sanitize()
+    {
+        ThresholdPercent = Math.Clamp(ThresholdPercent, 50, 99);
+        IntervalMinutes = Math.Clamp(IntervalMinutes, 1, 1440);
+        KillThresholdMB = Math.Clamp(KillThresholdMB, 256, 32768);
+        MinIntervalSeconds = Math.Clamp(MinIntervalSeconds, 10, 3600);
+
+        // 过滤非法时间点
+        DailyTimes = DailyTimes
+            .Where(t => TimeSpan.TryParseExact(t, new[] { @"h\:mm", @"hh\:mm" }, null, out _))
+            .DefaultIfEmpty("12:00")
+            .ToList();
+    }
 }

@@ -49,12 +49,15 @@ internal sealed class TrayAppContext : ApplicationContext
         _pauseItem.CheckedChanged += (_, _) =>
         {
             _paused = _pauseItem.Checked;
+            _scheduler.Paused = _paused;
             UpdatePausedText();
         };
         menu.Items.Add(_pauseItem);
 
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("高占用进程…", null, (_, _) => { using var f = new ProcessListForm(_config); f.ShowDialog(); });
         menu.Items.Add("设置…", null, (_, _) => OpenSettings());
+        menu.Items.Add("检查更新…", null, async (_, _) => await CheckForUpdateAsync(manual: true));
         menu.Items.Add("开机自启", null, (s, _) =>
         {
             var item = (ToolStripMenuItem)s!;
@@ -67,7 +70,7 @@ internal sealed class TrayAppContext : ApplicationContext
         startupItem.Checked = StartupManager.IsEnabled();
 
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("关于", null, (_, _) => new AboutForm().ShowDialog());
+        menu.Items.Add("关于", null, (_, _) => { using var f = new AboutForm(); f.ShowDialog(); });
         menu.Items.Add("退出", null, (_, _) => ExitThread());
 
         _tray = new NotifyIcon
@@ -81,6 +84,10 @@ internal sealed class TrayAppContext : ApplicationContext
 
         // 应用自启配置（注册表可能与配置不一致，以注册表实际为准）
         _config.RunAtStartup = StartupManager.IsEnabled();
+
+        // 启动时自动检查更新（后台，不阻塞）
+        if (_config.CheckUpdateOnStartup)
+            _ = CheckForUpdateAsync(manual: false);
     }
 
     private string BuildTooltip()
@@ -92,18 +99,19 @@ internal sealed class TrayAppContext : ApplicationContext
     private void UpdatePausedText()
         => _tray.Text = _paused ? "MemoryCleaner（已暂停）" : BuildTooltip();
 
+    private uint _lastShownPercent = uint.MaxValue;
+
     private void OnMemoryUpdated(MemorySnapshot snap)
     {
-        // NotifyIcon 的 Icon/Text 赋值是线程安全的（内部走 SendMessage）
-        var old = _tray.Icon;
-        _tray.Icon = IconGenerator.CreatePercentIcon(snap.LoadPercent);
-        if (old != null) DestroyIconSafe(old);
+        // 仅在百分比变化时重建图标，减少 GDI 分配
+        if (snap.LoadPercent != _lastShownPercent)
+        {
+            var old = _tray.Icon;
+            _tray.Icon = IconGenerator.CreatePercentIcon(snap.LoadPercent);
+            old?.Dispose();
+            _lastShownPercent = snap.LoadPercent;
+        }
         if (!_paused) _tray.Text = $"MemoryCleaner  内存 {snap.LoadPercent}%";
-    }
-
-    private static void DestroyIconSafe(Icon icon)
-    {
-        try { icon.Dispose(); } catch { }
     }
 
     private void OnCleaned(CleanSummary s)
@@ -133,11 +141,74 @@ internal sealed class TrayAppContext : ApplicationContext
         _scheduler.UpdateConfig(_config);
     }
 
+    // ===================== 自动更新 =====================
+
+    private async Task CheckForUpdateAsync(bool manual)
+    {
+        var release = await UpdateChecker.GetLatestReleaseAsync();
+        if (release == null)
+        {
+            if (manual) Info("检查更新", "无法连接 GitHub，请稍后再试。");
+            return;
+        }
+
+        if (!UpdateChecker.IsNewer(release, out var remote))
+        {
+            if (manual) Info("检查更新", $"当前已是最新版本 v{UpdateChecker.CurrentVersion}。");
+            return;
+        }
+
+        // 有新版本
+        string notes = string.IsNullOrWhiteSpace(release.Body) ? "" : $"\n\n更新内容：\n{TrimNotes(release.Body)}";
+        var r = MessageBox.Show(
+            $"发现新版本 {release.TagName}（当前 v{UpdateChecker.CurrentVersion}）。{notes}\n\n是否立即下载并更新？",
+            "发现新版本", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+        if (r != DialogResult.Yes) return;
+
+        var asset = UpdateChecker.PickAsset(release);
+        if (asset == null)
+        {
+            Info("更新", "未找到可下载的程序文件，将打开发布页。");
+            OpenUrl(release.HtmlUrl);
+            return;
+        }
+
+        Info("更新", $"正在下载 {asset.Name}（{asset.Size / 1024.0 / 1024.0:F1} MB），完成后将自动重启…");
+        var outcome = await UpdateChecker.DownloadAndApplyAsync(asset);
+        if (outcome.Success)
+        {
+            // 脚本已就绪，退出当前进程让更新生效
+            ExitThread();
+        }
+        else
+        {
+            Info("更新", $"下载失败：{outcome.Error ?? "未知原因"}\n将打开发布页供手动下载。");
+            OpenUrl(release.HtmlUrl);
+        }
+    }
+
+    private static string TrimNotes(string body)
+        => body.Length > 300 ? body[..300] + "…" : body;
+
+    private static void Info(string title, string text)
+        => MessageBox.Show(text, title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            using var p = System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch { }
+    }
+
     protected override void ExitThreadCore()
     {
+        // 先停调度器（等待在途回调/清理收尾），再销毁托盘，避免回调访问已释放的 NotifyIcon
+        _scheduler.Dispose();
         _tray.Visible = false;
         _tray.Dispose();
-        _scheduler.Dispose();
         base.ExitThreadCore();
     }
 }

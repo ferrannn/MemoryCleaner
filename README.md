@@ -18,13 +18,15 @@
   - 图标实时显示当前内存占用百分比（按占用率变色）
   - 右键菜单：立即清理 / 暂停 / 设置 / 开机自启 / 退出
   - 清理后气泡提示释放量
+- **高占用进程列表**：实时查看内存占用最高的进程，勾选加入白名单，先看清再处理，绝不盲删
+- **自动更新**：启动时 / 手动检查 GitHub 新版本，一键下载并自动替换重启
 - **轻量化**
   - 零第三方依赖（纯 Win32 P/Invoke + 内置库）
   - 框架依赖单文件 **< 0.2 MB**，自身内存占用 < 50 MB
 - **安全可靠**
-  - 单实例运行、防重入、两次清理最小间隔
-  - 系统关键进程绝不清理 / 结束
-  - 配置 JSON 存于 `%AppData%\MemoryCleaner\config.json`，热重载
+  - 单实例运行、防重入、两次清理最小间隔、全局异常兜底
+  - 系统关键进程绝不清理 / 结束，进程白名单双重保护
+  - 配置 JSON 存于 `%AppData%\MemoryCleaner\config.json`，热重载 + 加载时数值钳制
 
 ## 🚀 快速开始
 
@@ -42,7 +44,7 @@
 ### 方式二：自行编译
 
 ```bash
-git clone https://github.com/<你的用户名>/MemoryCleaner.git
+git clone https://github.com/ferrannn/MemoryCleaner.git
 cd MemoryCleaner
 
 # 自包含单文件（免安装）
@@ -81,6 +83,7 @@ dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained false \
 
   "RunAtStartup": false,            // 开机自启
   "ShowNotification": true,         // 清理后通知
+  "CheckUpdateOnStartup": true,     // 启动时检查更新
   "MinIntervalSeconds": 60          // 两次清理最小间隔
 }
 ```

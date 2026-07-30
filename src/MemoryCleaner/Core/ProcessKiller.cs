@@ -33,6 +33,47 @@ internal static class ProcessKiller
         }
     }
 
+    /// <summary>进程内存占用信息（供列表展示）。</summary>
+    public sealed record ProcessMemInfo(int Pid, string Name, long WorkingSetBytes, bool IsProtected, bool IsWhitelisted);
+
+    /// <summary>
+    /// 枚举所有可读进程的工作集，按占用降序返回前 <paramref name="top"/> 个。
+    /// 标注每个进程是否受保护（系统关键）/ 已在白名单。
+    /// </summary>
+    public static List<ProcessMemInfo> GetTopProcesses(ISet<string> whitelist, int top = 40)
+    {
+        var list = new List<ProcessMemInfo>();
+        foreach (var proc in Process.GetProcesses())
+        {
+            try
+            {
+                if (proc.Id <= 4) { continue; }
+                string name;
+                try { name = proc.ProcessName; }
+                catch { continue; }
+
+                long ws = GetWorkingSetBytes(proc);
+                if (ws < 0) continue;
+
+                bool isProtected = NeverKill.Contains(name);
+                bool isWhitelisted = whitelist.Contains(name);
+                list.Add(new ProcessMemInfo(proc.Id, name, ws, isProtected, isWhitelisted));
+            }
+            catch
+            {
+                // 单个失败忽略
+            }
+            finally
+            {
+                proc.Dispose();
+            }
+        }
+        return list
+            .OrderByDescending(p => p.WorkingSetBytes)
+            .Take(top)
+            .ToList();
+    }
+
     /// <summary>
     /// 找出工作集超过 <paramref name="thresholdBytes"/> 且不在白名单的进程。
     /// </summary>
