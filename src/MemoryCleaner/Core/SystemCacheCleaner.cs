@@ -18,7 +18,14 @@ internal static class SystemCacheCleaner
     private static bool TryEnablePrivileges(out List<string> missing)
     {
         missing = new List<string>();
-        string[] required = { "SeIncreaseQuotaPrivilege", "SeProfileSingleProcessPrivilege", "SeLockMemoryPrivilege" };
+
+        // 只申请真正用得上的两项：
+        //   SeIncreaseQuotaPrivilege        —— 清系统工作集（SystemFileCacheInformationEx）
+        //   SeProfileSingleProcessPrivilege —— 清待机 / Modified 列表
+        // 曾经还申请过 SeLockMemoryPrivilege，但它是给 AWE / 大页内存用的，与本功能无关；
+        // 而且默认不授予管理员组，必须在本地安全策略里手动分配，导致绝大多数用户每次
+        // 清理都会收到一条永远消不掉的“特权获取失败”提示。实测去掉后三个调用照常成功。
+        string[] required = { "SeIncreaseQuotaPrivilege", "SeProfileSingleProcessPrivilege" };
 
         if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out IntPtr token))
         {
