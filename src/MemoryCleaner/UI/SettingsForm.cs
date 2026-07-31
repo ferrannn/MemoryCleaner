@@ -18,7 +18,9 @@ internal sealed class SettingsForm : Form
     private static readonly Font FSub = new("Microsoft YaHei UI", 8f);
     private static readonly Font FCardHead = new("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
 
-    private const int ContentWidth = 500; // 卡片内容区宽度（扣除卡片内边距）
+    // 卡片内容区宽度（扣除卡片内边距）。窗口 560 - 滚动区内边距 28 - 纵向滚动条 ≈ 515，
+    // 卡片总宽须小于此值，否则会多出一条横向滚动条。
+    private const int ContentWidth = 476;
 
     private readonly AppConfig _config;
     public AppConfig Result => _config;
@@ -241,7 +243,7 @@ internal sealed class SettingsForm : Form
             BackColor = BgCard,
             Padding = new Padding(16, 8, 16, 14),
             Margin = new Padding(0, 0, 0, 12),
-            Width = 532, // 卡片总宽（内容 500 + 左右内边距 32）
+            Width = ContentWidth + 32, // 卡片总宽（内容 + 左右内边距 32）
             GrowStyle = TableLayoutPanelGrowStyle.AddRows,
         };
         card.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));

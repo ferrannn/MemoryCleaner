@@ -22,15 +22,16 @@ internal sealed class ProcessListForm : Form
         _whitelist = new HashSet<string>(config.ProcessWhitelist, StringComparer.OrdinalIgnoreCase);
 
         Text = "高占用进程";
-        StartPosition = FormStartPosition.CenterParent;
+        StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(560, 520);
         Font = new Font("Microsoft YaHei UI", 9f);
         BackColor = Color.FromArgb(245, 246, 248);
 
+        // 摘要文字较长，单行放不下会被截断，固定分两行显示
         _summary = new Label
         {
             Dock = DockStyle.Top,
-            Height = 40,
+            Height = 48,
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(12, 0, 0, 0),
             ForeColor = Color.FromArgb(90, 90, 90),
@@ -59,11 +60,12 @@ internal sealed class ProcessListForm : Form
         Controls.Add(_grid);
         _grid.BringToFront();
 
-        var colCheck = new DataGridViewCheckBoxColumn { HeaderText = "白名单", Width = 60, FillWeight = 18 };
-        var colName = new DataGridViewTextBoxColumn { HeaderText = "进程名", ReadOnly = true, FillWeight = 38 };
-        var colPid = new DataGridViewTextBoxColumn { HeaderText = "PID", ReadOnly = true, FillWeight = 16 };
-        var colMem = new DataGridViewTextBoxColumn { HeaderText = "内存", ReadOnly = true, FillWeight = 18 };
-        var colState = new DataGridViewTextBoxColumn { HeaderText = "状态", ReadOnly = true, FillWeight = 22 };
+        // 各列权重：状态列需容下最长的“可清理/可结束”，故占比高于进程名之外的其余列
+        var colCheck = new DataGridViewCheckBoxColumn { HeaderText = "白名单", Width = 60, FillWeight = 16 };
+        var colName = new DataGridViewTextBoxColumn { HeaderText = "进程名", ReadOnly = true, FillWeight = 30 };
+        var colPid = new DataGridViewTextBoxColumn { HeaderText = "PID", ReadOnly = true, FillWeight = 14 };
+        var colMem = new DataGridViewTextBoxColumn { HeaderText = "内存", ReadOnly = true, FillWeight = 16 };
+        var colState = new DataGridViewTextBoxColumn { HeaderText = "状态", ReadOnly = true, FillWeight = 26 };
         _grid.Columns.AddRange(colCheck, colName, colPid, colMem, colState);
 
         _grid.CellValueChanged += (_, e) =>
@@ -144,7 +146,7 @@ internal sealed class ProcessListForm : Form
             }
         }
 
-        _summary.Text = $"  共 {top.Count} 个进程；{overThreshold} 个超过结束阈值（{_config.KillThresholdMB} MB）。勾选“白名单”可保护进程不被结束。";
+        _summary.Text = $"共 {top.Count} 个进程，{overThreshold} 个超过结束阈值（{_config.KillThresholdMB} MB）。{Environment.NewLine}勾选“白名单”可保护进程不被结束。";
     }
 
     private void SaveWhitelist()
