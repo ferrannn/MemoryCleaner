@@ -18,14 +18,30 @@ internal sealed class TrayAppContext : ApplicationContext
     private readonly ToolStripMenuItem _cacheItem;
     private bool _paused;
 
+    private readonly CleanHistory _history;
+    private readonly MemorySparkline _sparkline;
+
     public TrayAppContext()
     {
         _config = ConfigStore.Load();
+        _history = CleanHistory.Load();
         _scheduler = new CleanScheduler(_config);
         _scheduler.Cleaned += OnCleaned;
         _scheduler.MemoryUpdated += OnMemoryUpdated;
 
         var menu = new ContextMenuStrip();
+
+        // 顶部：内存占用迷你曲线（自绘控件宿主）
+        _sparkline = new MemorySparkline();
+        var sparkHost = new ToolStripControlHost(_sparkline)
+        {
+            AutoSize = false,
+            Size = new Size(240, 48),
+            Margin = new Padding(4, 4, 4, 2),
+        };
+        menu.Items.Add(sparkHost);
+        menu.Items.Add(new ToolStripSeparator());
+
         menu.Items.Add("立即清理", null, (_, _) => _scheduler.CleanNow());
         menu.Items.Add(new ToolStripSeparator());
 
@@ -56,6 +72,7 @@ internal sealed class TrayAppContext : ApplicationContext
 
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("高占用进程…", null, (_, _) => { using var f = new ProcessListForm(_config); f.ShowDialog(); });
+        menu.Items.Add("清理历史…", null, (_, _) => { using var f = new HistoryForm(_history); f.ShowDialog(); });
         menu.Items.Add("设置…", null, (_, _) => OpenSettings());
         menu.Items.Add("检查更新…", null, async (_, _) => await CheckForUpdateAsync(manual: true));
         menu.Items.Add("开机自启", null, (s, _) =>
@@ -103,6 +120,8 @@ internal sealed class TrayAppContext : ApplicationContext
 
     private void OnMemoryUpdated(MemorySnapshot snap)
     {
+        _sparkline.AddSample(snap.LoadPercent);
+
         // 仅在百分比变化时重建图标，减少 GDI 分配
         if (snap.LoadPercent != _lastShownPercent)
         {
@@ -116,6 +135,8 @@ internal sealed class TrayAppContext : ApplicationContext
 
     private void OnCleaned(CleanSummary s)
     {
+        _history.Add(new CleanRecord(DateTime.Now, s.Trigger, s.BytesFreed, s.WorkingSetTouched));
+
         if (!_config.ShowNotification) return;
         string freed = s.BytesFreed >= 1024 * 1024
             ? $"{s.BytesFreed / 1024.0 / 1024.0:F0} MB"

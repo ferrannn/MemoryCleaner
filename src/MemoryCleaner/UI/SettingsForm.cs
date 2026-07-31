@@ -3,13 +3,22 @@ using MemoryCleaner.Config;
 namespace MemoryCleaner.UI;
 
 /// <summary>
-/// 设置窗口：分区卡片式布局，固定底部按钮栏，杜绝遮挡/截断。
+/// 设置窗口：卡片式布局，固定底部按钮栏。
+/// 每张卡片用单列 TableLayoutPanel（行高自适应、列宽充满），
+/// 长文本自动换行，绝不溢出/截断。每个选项配主标题 + 灰色副标题说明。
 /// </summary>
 internal sealed class SettingsForm : Form
 {
-    private static readonly Color Accent = Color.FromArgb(50, 120, 200);
-    private static readonly Color BgPage = Color.FromArgb(245, 246, 248);
+    private static readonly Color Accent = Color.FromArgb(46, 117, 222);
+    private static readonly Color BgPage = Color.FromArgb(243, 245, 249);
     private static readonly Color BgCard = Color.White;
+    private static readonly Color TxtMain = Color.FromArgb(32, 36, 42);
+    private static readonly Color TxtSub = Color.FromArgb(120, 128, 138);
+    private static readonly Font FTitle = new("Microsoft YaHei UI", 9f);
+    private static readonly Font FSub = new("Microsoft YaHei UI", 8f);
+    private static readonly Font FCardHead = new("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
+
+    private const int ContentWidth = 500; // 卡片内容区宽度（扣除卡片内边距）
 
     private readonly AppConfig _config;
     public AppConfig Result => _config;
@@ -44,48 +53,27 @@ internal sealed class SettingsForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(520, 640);
+        ClientSize = new Size(560, 720);
         BackColor = BgPage;
-        Font = new Font("Microsoft YaHei UI", 9f);
+        Font = FTitle;
 
-        // ===== 底部固定按钮栏（先加，Dock=Bottom，保证永远可见）=====
-        var bottomBar = new Panel { Dock = DockStyle.Bottom, Height = 56, BackColor = BgCard };
-        var btnOk = new Button
-        {
-            Text = "保存",
-            Width = 100,
-            Height = 36,
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Accent,
-            ForeColor = Color.White,
-            Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
-        };
-        btnOk.FlatAppearance.BorderSize = 0;
-        var btnCancel = new Button
-        {
-            Text = "取消",
-            Width = 100,
-            Height = 36,
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(230, 230, 230),
-            ForeColor = Color.FromArgb(60, 60, 60),
-            Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
-        };
-        btnCancel.FlatAppearance.BorderSize = 0;
-
+        // ===== 底部固定按钮栏 =====
+        var bottomBar = new Panel { Dock = DockStyle.Bottom, Height = 60, BackColor = BgCard };
+        var btnOk = MakeButton("保存", Accent, Color.White);
+        var btnCancel = MakeButton("取消", Color.FromArgb(233, 236, 240), Color.FromArgb(70, 76, 84));
         bottomBar.Controls.Add(btnOk);
         bottomBar.Controls.Add(btnCancel);
         bottomBar.Resize += (_, _) =>
         {
-            btnCancel.Location = new Point(bottomBar.Width - btnCancel.Width - 16, 10);
-            btnOk.Location = new Point(btnCancel.Left - btnOk.Width - 10, 10);
+            btnCancel.Location = new Point(bottomBar.Width - btnCancel.Width - 18, 12);
+            btnOk.Location = new Point(btnCancel.Left - btnOk.Width - 10, 12);
         };
         Controls.Add(bottomBar);
 
         // ===== 滚动内容区 =====
         var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = BgPage, Padding = new Padding(14) };
         Controls.Add(scroll);
-        scroll.BringToFront(); // 让内容填充 bottomBar 之上
+        scroll.BringToFront();
 
         var stack = new FlowLayoutPanel
         {
@@ -93,77 +81,86 @@ internal sealed class SettingsForm : Form
             WrapContents = false,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Width = scroll.ClientSize.Width - 30,
+            Width = scroll.ClientSize.Width - 28,
             Anchor = AnchorStyles.Top | AnchorStyles.Left,
+            Margin = new Padding(0),
         };
         scroll.Controls.Add(stack);
-        scroll.Resize += (_, _) => stack.Width = scroll.ClientSize.Width - 30;
-
-        int CardWidth() => stack.Width;
+        scroll.Resize += (_, _) => stack.Width = scroll.ClientSize.Width - 28;
 
         // ---------- 卡片：清理方式 ----------
-        var cardMethod = Card("清理方式", CardWidth());
-        chkWorkingSet = Check("清空工作集（Working Set）— 安全、最常用", config.CleanWorkingSet);
-        chkSystemCache = Check("清空系统缓存 / 待机列表（需管理员）", config.CleanSystemCache);
+        var cardMethod = Card("清理方式");
+        chkWorkingSet = Check("清空工作集（Working Set）", config.CleanWorkingSet);
+        AddOpt(cardMethod, chkWorkingSet, "把各进程暂时用不到的物理内存归还给系统。安全无副作用，日常清理首选。");
+        chkSystemCache = Check("清空系统缓存 / 待机列表", config.CleanSystemCache);
         chkSystemCache.Enabled = Core.MemoryInfoProvider.IsElevated();
-        chkKill = Check("结束高占用进程（默认关闭，谨慎）", config.KillHighUsageProcesses);
-        AddRows(cardMethod, chkWorkingSet, chkSystemCache, chkKill);
+        AddOpt(cardMethod, chkSystemCache,
+            chkSystemCache.Enabled
+                ? "清空系统文件缓存与待机内存列表，释放被缓存占用的物理内存。需要管理员权限。"
+                : "清空系统文件缓存与待机内存列表。需以管理员身份运行本程序才能启用。");
+        chkKill = Check("结束高占用进程", config.KillHighUsageProcesses);
+        AddOpt(cardMethod, chkKill, "直接结束内存占用超过阈值的进程。默认关闭；关键系统进程与白名单进程绝不结束。");
         stack.Controls.Add(cardMethod);
 
         // ---------- 卡片：自动清理触发 ----------
-        var cardTrigger = Card("自动清理触发（可组合）", CardWidth());
+        var cardTrigger = Card("自动清理触发（可组合）");
         chkThreshold = Check("内存占用超过", config.ThresholdEnabled);
         numThreshold = Num(config.ThresholdPercent, 50, 99);
-        cardTrigger.Controls.Add(RowWith(chkThreshold, numThreshold, "%"));
+        AddRow(cardTrigger, Row(chkThreshold, numThreshold, Suffix("% 时自动清理")));
 
         chkInterval = Check("每隔", config.IntervalEnabled);
         numInterval = Num(config.IntervalMinutes, 1, 1440);
-        cardTrigger.Controls.Add(RowWith(chkInterval, numInterval, "分钟清理一次"));
+        AddRow(cardTrigger, Row(chkInterval, numInterval, Suffix("分钟清理一次")));
 
-        chkSchedule = Check("在指定时间点触发", config.ScheduleEnabled);
-        cardTrigger.Controls.Add(InlineRow(chkSchedule));
-        cardTrigger.Controls.Add(Caption("每天时间（HH:mm，多个用逗号分隔）"));
-        txtDailyTimes = new TextBox { Text = string.Join(", ", config.DailyTimes), Width = 320 };
-        cardTrigger.Controls.Add(txtDailyTimes);
+        chkSchedule = Check("在指定时间点清理", config.ScheduleEnabled);
+        AddOpt(cardTrigger, chkSchedule, "每天在下面的固定时间触发，可填多个时间点。");
+        AddRow(cardTrigger, Caption("每天时间（HH:mm，多个用逗号分隔，如 08:00, 20:30）"));
+        txtDailyTimes = new TextBox { Text = string.Join(", ", config.DailyTimes), Width = ContentWidth, Font = FTitle };
+        AddRow(cardTrigger, txtDailyTimes);
 
-        chkWeekly = Check("仅每周指定星期触发", config.WeeklyEnabled);
-        cmbWeekday = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
+        chkWeekly = Check("仅每周", config.WeeklyEnabled);
+        cmbWeekday = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120, Font = FTitle };
         cmbWeekday.Items.AddRange(new object[] { "周日", "周一", "周二", "周三", "周四", "周五", "周六" });
         cmbWeekday.SelectedIndex = (int)config.WeeklyDay;
-        cardTrigger.Controls.Add(RowWith(chkWeekly, cmbWeekday, ""));
+        AddRow(cardTrigger, Row(chkWeekly, cmbWeekday, Suffix("的上述时间触发（勾选后按星期限制）")));
         stack.Controls.Add(cardTrigger);
 
         // ---------- 卡片：高占用进程 ----------
-        var cardProc = Card("高占用进程（先看清再处理，避免误删）", CardWidth());
-        cardProc.Controls.Add(Caption("单进程工作集超过此值才会被处理："));
+        var cardProc = Card("高占用进程");
+        AddRow(cardProc, Caption("单进程工作集超过此值才会被处理（先看清再处理，避免误删）"));
         numKillThreshold = Num(config.KillThresholdMB, 256, 32768);
-        cardProc.Controls.Add(InlineRow(numKillThreshold, "MB"));
+        AddRow(cardProc, Row(numKillThreshold, Suffix("MB")));
         var btnViewProc = new Button
         {
             Text = "查看当前高占用进程…",
-            Height = 32,
+            Height = 34,
             FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(235, 242, 250),
+            BackColor = Color.FromArgb(233, 241, 253),
             ForeColor = Accent,
             AutoSize = true,
+            Font = FTitle,
+            Margin = new Padding(0, 8, 0, 4),
+            Padding = new Padding(8, 0, 8, 0),
         };
         btnViewProc.FlatAppearance.BorderColor = Accent;
         btnViewProc.Click += (_, _) => { using var f = new ProcessListForm(_config); f.ShowDialog(this); };
-        cardProc.Controls.Add(btnViewProc);
-        cardProc.Controls.Add(Caption("进程白名单（进程名不含 .exe，逗号分隔，绝不结束）"));
-        txtWhitelist = new TextBox { Text = string.Join(", ", config.ProcessWhitelist), Width = 320 };
-        cardProc.Controls.Add(txtWhitelist);
+        AddRow(cardProc, Row(btnViewProc));
+        AddRow(cardProc, Caption("进程白名单（进程名不含 .exe，逗号分隔，绝不结束）"));
+        txtWhitelist = new TextBox { Text = string.Join(", ", config.ProcessWhitelist), Width = ContentWidth, Font = FTitle };
+        AddRow(cardProc, txtWhitelist);
         stack.Controls.Add(cardProc);
 
         // ---------- 卡片：行为 ----------
-        var cardBehavior = Card("行为", CardWidth());
+        var cardBehavior = Card("行为");
         chkAutoUpdate = Check("启动时自动检查更新", config.CheckUpdateOnStartup);
+        AddOpt(cardBehavior, chkAutoUpdate, "程序启动时在后台检查 GitHub 是否有新版本，有则提示一键升级。");
         chkStartup = Check("开机自启", StartupManager.IsEnabled());
+        AddOpt(cardBehavior, chkStartup, "登录 Windows 后自动在托盘后台运行本程序。");
         chkNotify = Check("清理后显示通知", config.ShowNotification);
-        AddRows(cardBehavior, chkAutoUpdate, chkStartup, chkNotify);
-        cardBehavior.Controls.Add(Caption("两次清理最小间隔（秒）"));
+        AddOpt(cardBehavior, chkNotify, "每次自动清理完成后，在托盘弹出气泡显示释放了多少内存。");
+        AddRow(cardBehavior, Caption("两次清理的最小间隔（防止清理过于频繁）"));
         numMinInterval = Num(config.MinIntervalSeconds, 10, 3600);
-        cardBehavior.Controls.Add(InlineRow(numMinInterval, "秒"));
+        AddRow(cardBehavior, Row(numMinInterval, Suffix("秒")));
         stack.Controls.Add(cardBehavior);
 
         AcceptButton = btnOk;
@@ -216,53 +213,89 @@ internal sealed class SettingsForm : Form
 
     // ===================== 控件构造辅助 =====================
 
-    private static GroupBox Card(string title, int width) => new()
+    private static Button MakeButton(string text, Color back, Color fore)
     {
-        Text = "  " + title + "  ",
-        Width = width,
-        AutoSize = true,
-        AutoSizeMode = AutoSizeMode.GrowAndShrink,
-        BackColor = BgCard,
-        ForeColor = Color.FromArgb(40, 40, 40),
-        Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold),
-        Padding = new Padding(14, 10, 14, 14),
-        Margin = new Padding(0, 0, 0, 12),
-    };
+        var b = new Button
+        {
+            Text = text,
+            Width = 100,
+            Height = 36,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = back,
+            ForeColor = fore,
+            Font = FTitle,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
+        };
+        b.FlatAppearance.BorderSize = 0;
+        return b;
+    }
 
-    private static CheckBox Check(string text, bool on) => new()
+    /// <summary>卡片：白底面板，顶部彩色标题 + 单列自适应表格。</summary>
+    private static TableLayoutPanel Card(string title)
     {
-        Text = text,
-        Checked = on,
-        AutoSize = true,
-        Font = new Font("Microsoft YaHei UI", 9f),
-        Margin = new Padding(0, 4, 0, 4),
-    };
+        var card = new TableLayoutPanel
+        {
+            ColumnCount = 1,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BackColor = BgCard,
+            Padding = new Padding(16, 8, 16, 14),
+            Margin = new Padding(0, 0, 0, 12),
+            Width = 532, // 卡片总宽（内容 500 + 左右内边距 32）
+            GrowStyle = TableLayoutPanelGrowStyle.AddRows,
+        };
+        card.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        card.RowCount = 0;
 
-    private static Label Caption(string text) => new()
+        var header = new Label
+        {
+            Text = title,
+            AutoSize = true,
+            Font = FCardHead,
+            ForeColor = Accent,
+            Margin = new Padding(0, 0, 0, 8),
+        };
+        AddRow(card, header);
+        return card;
+    }
+
+    /// <summary>向卡片追加一行控件（行高自适应，按添加顺序排列）。</summary>
+    private static void AddRow(TableLayoutPanel card, Control c)
     {
-        Text = text,
-        AutoSize = true,
-        ForeColor = Color.FromArgb(110, 110, 110),
-        Font = new Font("Microsoft YaHei UI", 8.5f),
-        Margin = new Padding(0, 8, 0, 2),
-    };
+        c.Dock = DockStyle.Top;
+        int r = card.RowCount;
+        card.RowCount++;
+        card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        card.Controls.Add(c, 0, r);
+    }
 
-    private static NumericUpDown Num(int value, int min, int max) => new()
+    /// <summary>一个带说明的设置项：复选框一行 + 缩进灰色副标题一行。</summary>
+    private static void AddOpt(TableLayoutPanel card, CheckBox chk, string description)
     {
-        Minimum = min,
-        Maximum = max,
-        Value = Math.Clamp(value, min, max),
-        Width = 90,
-        Font = new Font("Microsoft YaHei UI", 9f),
-    };
+        chk.Dock = DockStyle.Top;
+        chk.AutoSize = true;
+        AddRow(card, chk);
 
-    /// <summary>把若干控件放到同一行（复选框 + 数值框 + 后缀文字）。</summary>
-    private static FlowLayoutPanel InlineRow(params Control[] controls)
+        var sub = new Label
+        {
+            Text = description,
+            AutoSize = true,
+            Dock = DockStyle.Top,
+            ForeColor = TxtSub,
+            Font = FSub,
+            Padding = new Padding(20, 0, 0, 6),
+            MaximumSize = new Size(ContentWidth - 20, 0), // 到宽度自动换行
+        };
+        AddRow(card, sub);
+    }
+
+    /// <summary>一行内水平排列若干控件，空间不足自动换行（防右侧被挤出）。</summary>
+    private static FlowLayoutPanel Row(params Control[] controls)
     {
         var row = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
+            WrapContents = true,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Margin = new Padding(0, 3, 0, 3),
@@ -276,39 +309,40 @@ internal sealed class SettingsForm : Form
         return row;
     }
 
-    private static FlowLayoutPanel RowWith(Control a, Control b, string suffix)
+    private static CheckBox Check(string text, bool on) => new()
     {
-        var row = new FlowLayoutPanel
-        {
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Margin = new Padding(0, 3, 0, 3),
-        };
-        a.Margin = new Padding(0, 0, 8, 0);
-        b.Margin = new Padding(0, 0, 8, 0);
-        row.Controls.Add(a);
-        row.Controls.Add(b);
-        if (!string.IsNullOrEmpty(suffix))
-        {
-            var lbl = new Label
-            {
-                Text = suffix,
-                AutoSize = true,
-                ForeColor = Color.FromArgb(110, 110, 110),
-                Margin = new Padding(0, 6, 0, 0),
-            };
-            row.Controls.Add(lbl);
-        }
-        return row;
-    }
+        Text = text,
+        Checked = on,
+        AutoSize = true,
+        ForeColor = TxtMain,
+        Font = FTitle,
+        Margin = new Padding(0, 4, 0, 2),
+    };
 
-    private static FlowLayoutPanel InlineRow(Control a, string suffix)
-        => RowWith(a, new Label { Text = suffix, AutoSize = true, ForeColor = Color.FromArgb(110, 110, 110), Margin = new Padding(0, 6, 0, 0) }, "");
-
-    private static void AddRows(GroupBox card, params Control[] rows)
+    private static Label Caption(string text) => new()
     {
-        foreach (var r in rows) card.Controls.Add(r);
-    }
+        Text = text,
+        AutoSize = true,
+        ForeColor = TxtSub,
+        Font = FSub,
+        Margin = new Padding(0, 8, 0, 2),
+    };
+
+    private static Label Suffix(string text) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        ForeColor = TxtSub,
+        Font = FSub,
+        Margin = new Padding(0, 6, 0, 0),
+    };
+
+    private static NumericUpDown Num(int value, int min, int max) => new()
+    {
+        Minimum = min,
+        Maximum = max,
+        Value = Math.Clamp(value, min, max),
+        Width = 96,
+        Font = FTitle,
+    };
 }

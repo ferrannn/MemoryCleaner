@@ -1,8 +1,7 @@
 ## Build results
 bin/
 obj/
-publish/
-publish-framework-dependent/
+publish*/
 *.user
 *.suo
 .vs/
