@@ -27,10 +27,8 @@ internal sealed class HistoryForm : Form
 
         _summary = new Label
         {
-            Dock = DockStyle.Top,
-            Height = 40,
+            Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(12, 0, 0, 0),
             ForeColor = Color.FromArgb(60, 60, 60),
         };
 
@@ -55,12 +53,15 @@ internal sealed class HistoryForm : Form
             }
         };
 
-        var topBar = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = Color.White };
-        topBar.Controls.Add(_summary);
-        topBar.Controls.Add(btnClear);
-        topBar.Resize += (_, _) => btnClear.Location = new Point(topBar.Width - btnClear.Width - 12, 5);
-        // summary 让出按钮空间
-        _summary.Width = topBar.Width - btnClear.Width - 24;
+        var topBar = new Panel { Dock = DockStyle.Top, Height = 42, BackColor = Color.White, Padding = new Padding(12, 0, 8, 0) };
+        var btnHost = new Panel { Dock = DockStyle.Right, Width = btnClear.Width + 8, BackColor = Color.Transparent };
+        btnClear.Location = new Point(4, 6);
+        btnClear.Anchor = AnchorStyles.None;
+        btnHost.Controls.Add(btnClear);
+        _summary.Dock = DockStyle.Fill;
+        topBar.Controls.Add(_summary); // Fill 先加
+        topBar.Controls.Add(btnHost);  // Right 后加，summary 自动让出按钮空间
+        btnHost.BringToFront();
 
         _grid = new DataGridView
         {
