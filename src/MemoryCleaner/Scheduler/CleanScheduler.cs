@@ -71,6 +71,8 @@ public sealed class CleanScheduler : IDisposable
                 if (_disposed || _isCleaning) return;
                 if ((DateTime.Now - _lastClean).TotalSeconds < Config.MinIntervalSeconds) return;
                 if (Paused) return;
+                // 全屏程序运行时让路（仅自动触发；CleanNow 不受此限制）
+                if (Config.SkipWhenFullscreen && ForegroundState.IsFullscreenAppRunning()) return;
 
                 var now = DateTime.Now;
                 fired = _triggers.FirstOrDefault(t => t.ShouldFire(now, Config, _snapshot));
@@ -116,22 +118,25 @@ public sealed class CleanScheduler : IDisposable
             int touched = 0;
 
             var cfg = Config;
+            // 白名单在此同样生效：清空工作集会让进程重新缺页读回，对游戏等实时程序可感知
+            var whitelist = cfg.WhitelistSet;
+
             if (cfg.CleanWorkingSet)
             {
-                var r = WorkingSetCleaner.Clean();
+                var r = WorkingSetCleaner.Clean(whitelist);
                 touched += r.ProcessesTouched;
                 notes.AddRange(r.Notes);
             }
 
             if (cfg.CleanSystemCache && SystemCacheCleaner.IsSupported)
             {
-                var r = SystemCacheCleaner.Clean();
+                var r = SystemCacheCleaner.Clean(cfg.SystemCacheGentle);
                 notes.AddRange(r.Notes);
             }
 
             if (cfg.KillHighUsageProcesses)
             {
-                var r = ProcessKiller.Run(cfg.KillThresholdMB * 1024L * 1024L, cfg.WhitelistSet, kill: true);
+                var r = ProcessKiller.Run(cfg.KillThresholdMB * 1024L * 1024L, whitelist, kill: true);
                 notes.AddRange(r.Notes);
             }
 

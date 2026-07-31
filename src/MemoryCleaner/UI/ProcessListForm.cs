@@ -146,7 +146,7 @@ internal sealed class ProcessListForm : Form
             }
         }
 
-        _summary.Text = $"共 {top.Count} 个进程，{overThreshold} 个超过结束阈值（{_config.KillThresholdMB} MB）。{Environment.NewLine}勾选“白名单”可保护进程不被结束。";
+        _summary.Text = $"共 {top.Count} 个进程，{overThreshold} 个超过结束阈值（{_config.KillThresholdMB} MB）。{Environment.NewLine}勾选“白名单”可保护进程不被清理工作集，也不被结束。";
     }
 
     private void SaveWhitelist()

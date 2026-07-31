@@ -127,6 +127,21 @@ internal static class NativeMethods
     [DllImport("ntdll.dll", SetLastError = true)]
     internal static extern int NtSetSystemInformation(int SystemInformationClass, IntPtr SystemInformation, int SystemInformationLength);
 
+    // ---------- 用户忙碌状态（全屏 / 演示模式检测） ----------
+    internal enum QUERY_USER_NOTIFICATION_STATE
+    {
+        QUNS_NOT_PRESENT = 1,             // 屏保运行或已锁屏
+        QUNS_BUSY = 2,                    // 有全屏程序在运行
+        QUNS_RUNNING_D3D_FULL_SCREEN = 3, // D3D 独占全屏（多数游戏）
+        QUNS_PRESENTATION_MODE = 4,       // 用户开启了演示模式
+        QUNS_ACCEPTS_NOTIFICATIONS = 5,   // 空闲，可打扰
+        QUNS_QUIET_TIME = 6,              // 安静时间
+        QUNS_APP = 7,                     // 全屏的商店应用（Win8+）
+    }
+
+    [DllImport("shell32.dll")]
+    internal static extern int SHQueryUserNotificationState(out QUERY_USER_NOTIFICATION_STATE pquns);
+
     // ---------- 是否管理员 ----------
     [DllImport("shell32.dll")]
     internal static extern bool IsUserAnAdmin();

@@ -24,8 +24,8 @@ Windows 用久了内存被各种进程和系统缓存悄悄占满，手动清理
 
 - ✅ **三种清理方式**（可自由组合）
   - 清空工作集（Working Set）— `EmptyWorkingSet`，安全、最常用
-  - 清空系统缓存 / 待机列表（Standby / Modified List）— 需管理员
-  - 结束高占用进程 — 默认关闭，强白名单保护
+  - 清空系统缓存 / 待机列表（Standby / Modified List）— 需管理员，含**温和模式**
+  - 结束高占用进程 — 默认关闭，开启前需二次确认，强白名单保护
 - ✅ **三种触发方式**（可任意组合）
   - 阈值触发：内存占用超过 X% 自动清理
   - 固定间隔：每隔 N 分钟清理
@@ -34,13 +34,15 @@ Windows 用久了内存被各种进程和系统缓存悄悄占满，手动清理
   - 图标实时显示内存占用百分比（按占用率变色）
   - 右键菜单顶部展示最近内存占用**迷你曲线**（sparkline）
   - 清理后气泡提示释放量
+- ✅ **游戏友好**：检测到全屏程序（游戏 / 播放器 / 演示模式）时自动跳过清理，不打断画面
 - ✅ **高占用进程列表**：先看清再处理，勾选白名单，绝不盲删
 - ✅ **清理历史日志**：时间 / 触发方式 / 释放量 / 触及进程数，含累计统计
 - ✅ **自动更新**：启动时 / 手动检查新版本，一键下载并自动替换重启
 - ✅ **安全可靠**
   - 零第三方依赖（纯 Win32 P/Invoke + 内置库）
   - 单实例运行、防重入、最小清理间隔、全局异常兜底
-  - 系统关键进程绝不清理 / 结束，进程白名单双重保护
+  - 系统关键进程绝不清理 / 结束
+  - **白名单进程既不会被结束，也不会被清理工作集** —— 游戏、剪辑软件加进去即可免打扰
 
 ---
 
@@ -106,6 +108,7 @@ dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained false \
 {
   "CleanWorkingSet": true,          // 清空工作集
   "CleanSystemCache": false,        // 清空系统缓存（需管理员）
+  "SystemCacheGentle": true,        // 温和模式：只清低优先级缓存，避免卡顿
   "KillHighUsageProcesses": false,  // 结束高占用进程（默认关闭）
 
   "ThresholdEnabled": true,         // 阈值触发
@@ -119,9 +122,10 @@ dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained false \
   "WeeklyEnabled": false,
   "WeeklyDay": 0,                   // 0=周日
 
-  "KillThresholdMB": 2048,          // 单进程工作集阈值
-  "ProcessWhitelist": [],           // 进程白名单（不含 .exe）
+  "KillThresholdMB": 8192,          // 单进程工作集阈值
+  "ProcessWhitelist": [],           // 进程白名单（清理与结束均跳过，不含 .exe）
 
+  "SkipWhenFullscreen": true,       // 全屏程序运行时跳过自动清理
   "RunAtStartup": false,            // 开机自启
   "ShowNotification": true,         // 清理后通知
   "CheckUpdateOnStartup": true,     // 启动时检查更新

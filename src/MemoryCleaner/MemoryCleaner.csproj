@@ -9,9 +9,9 @@
     <AssemblyName>MemoryCleaner</AssemblyName>
     <RootNamespace>MemoryCleaner</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <AssemblyVersion>1.2.1.0</AssemblyVersion>
-    <FileVersion>1.2.1.0</FileVersion>
-    <Version>1.2.1</Version>
+    <AssemblyVersion>1.3.0.0</AssemblyVersion>
+    <FileVersion>1.3.0.0</FileVersion>
+    <Version>1.3.0</Version>
     <Product>MemoryCleaner</Product>
     <Description>轻量级自定义定时内存清理工具</Description>
     <ApplicationIcon>app.ico</ApplicationIcon>

@@ -25,7 +25,12 @@ internal static class WorkingSetCleaner
         "svchost", "dwm", "explorer", "SystemSettings", "MemoryCleaner",
     };
 
-    public static CleanResult Clean()
+    /// <param name="whitelist">
+    /// 用户白名单：这些进程的工作集同样不清理。清空工作集会让进程的页面被迫重新
+    /// 缺页读回，对游戏等实时程序是可感知的卡顿，因此白名单必须在此同样生效，
+    /// 而不能只保护「结束进程」。
+    /// </param>
+    public static CleanResult Clean(ISet<string>? whitelist = null)
     {
         long beforeAvail = (long)Core.MemoryInfoProvider.GetSnapshot().AvailPhysBytes;
         int touched = 0;
@@ -39,6 +44,7 @@ internal static class WorkingSetCleaner
                 try { name = proc.ProcessName; }
                 catch { continue; }
                 if (CriticalProcesses.Contains(name)) continue;
+                if (whitelist != null && whitelist.Contains(name)) continue;
 
                 IntPtr h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA, false, proc.Id);
                 if (h == IntPtr.Zero) continue;

@@ -27,6 +27,7 @@ internal sealed class SettingsForm : Form
 
     private readonly CheckBox chkWorkingSet;
     private readonly CheckBox chkSystemCache;
+    private readonly CheckBox chkCacheGentle;
     private readonly CheckBox chkKill;
 
     private readonly CheckBox chkThreshold;
@@ -41,6 +42,7 @@ internal sealed class SettingsForm : Form
     private readonly NumericUpDown numKillThreshold;
     private readonly TextBox txtWhitelist;
 
+    private readonly CheckBox chkSkipFullscreen;
     private readonly CheckBox chkAutoUpdate;
     private readonly CheckBox chkStartup;
     private readonly CheckBox chkNotify;
@@ -93,15 +95,31 @@ internal sealed class SettingsForm : Form
         // ---------- 卡片：清理方式 ----------
         var cardMethod = Card("清理方式");
         chkWorkingSet = Check("清空工作集（Working Set）", config.CleanWorkingSet);
-        AddOpt(cardMethod, chkWorkingSet, "把各进程暂时用不到的物理内存归还给系统。安全无副作用，日常清理首选。");
+        AddOpt(cardMethod, chkWorkingSet, "把各进程暂时用不到的物理内存归还给系统。安全无副作用，日常清理首选。白名单进程不受影响。");
+
         chkSystemCache = Check("清空系统缓存 / 待机列表", config.CleanSystemCache);
         chkSystemCache.Enabled = Core.MemoryInfoProvider.IsElevated();
         AddOpt(cardMethod, chkSystemCache,
             chkSystemCache.Enabled
                 ? "清空系统文件缓存与待机内存列表，释放被缓存占用的物理内存。需要管理员权限。"
                 : "清空系统文件缓存与待机内存列表。需以管理员身份运行本程序才能启用。");
+
+        chkCacheGentle = Check("温和模式（推荐）", config.SystemCacheGentle);
+        chkCacheGentle.Margin = new Padding(20, 0, 0, 2); // 作为上一项的子选项缩进
+        AddOpt(cardMethod, chkCacheGentle,
+            "只清空低优先级缓存页，保留前台程序正在使用的缓存。释放量略少，但不会造成游戏、"
+            + "视频等程序卡顿。关闭后为完整清空，释放更多但可能出现短暂卡顿。");
+        chkCacheGentle.Enabled = chkSystemCache.Enabled && chkSystemCache.Checked;
+        chkSystemCache.CheckedChanged += (_, _) =>
+            chkCacheGentle.Enabled = chkSystemCache.Enabled && chkSystemCache.Checked;
+
         chkKill = Check("结束高占用进程", config.KillHighUsageProcesses);
         AddOpt(cardMethod, chkKill, "直接结束内存占用超过阈值的进程。默认关闭；关键系统进程与白名单进程绝不结束。");
+        chkKill.CheckedChanged += (_, _) =>
+        {
+            if (chkKill.Checked && !ConfirmEnableKill(this))
+                chkKill.Checked = false;
+        };
         stack.Controls.Add(cardMethod);
 
         // ---------- 卡片：自动清理触发 ----------
@@ -147,13 +165,17 @@ internal sealed class SettingsForm : Form
         btnViewProc.FlatAppearance.BorderColor = Accent;
         btnViewProc.Click += (_, _) => { using var f = new ProcessListForm(_config); f.ShowDialog(this); };
         AddRow(cardProc, Row(btnViewProc));
-        AddRow(cardProc, Caption("进程白名单（进程名不含 .exe，逗号分隔，绝不结束）"));
+        AddRow(cardProc, Caption("进程白名单（进程名不含 .exe，逗号分隔；既不清理工作集，也不结束）"));
         txtWhitelist = new TextBox { Text = string.Join(", ", config.ProcessWhitelist), Width = ContentWidth, Font = FTitle };
         AddRow(cardProc, txtWhitelist);
         stack.Controls.Add(cardProc);
 
         // ---------- 卡片：行为 ----------
         var cardBehavior = Card("行为");
+        chkSkipFullscreen = Check("玩游戏 / 全屏时不清理（推荐）", config.SkipWhenFullscreen);
+        AddOpt(cardBehavior, chkSkipFullscreen,
+            "检测到游戏、全屏播放或演示模式时，自动跳过本次清理，避免画面卡顿。"
+            + "手动点「立即清理」不受影响。");
         chkAutoUpdate = Check("启动时自动检查更新", config.CheckUpdateOnStartup);
         AddOpt(cardBehavior, chkAutoUpdate, "程序启动时在后台检查 GitHub 是否有新版本，有则提示一键升级。");
         chkStartup = Check("开机自启", StartupManager.IsEnabled());
@@ -188,6 +210,7 @@ internal sealed class SettingsForm : Form
 
         _config.CleanWorkingSet = chkWorkingSet.Checked;
         _config.CleanSystemCache = chkSystemCache.Checked;
+        _config.SystemCacheGentle = chkCacheGentle.Checked;
         _config.KillHighUsageProcesses = chkKill.Checked;
 
         _config.ThresholdEnabled = chkThreshold.Checked;
@@ -204,6 +227,7 @@ internal sealed class SettingsForm : Form
             .Split(new[] { ',', '，', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToList();
 
+        _config.SkipWhenFullscreen = chkSkipFullscreen.Checked;
         _config.CheckUpdateOnStartup = chkAutoUpdate.Checked;
         _config.ShowNotification = chkNotify.Checked;
         _config.MinIntervalSeconds = (int)numMinInterval.Value;
@@ -260,6 +284,24 @@ internal sealed class SettingsForm : Form
         AddRow(card, header);
         return card;
     }
+
+    /// <summary>
+    /// 开启「结束高占用进程」前的确认。这是全程序唯一不可撤销、且可能导致
+    /// 未保存数据丢失的功能，必须让用户明确知情后再启用。
+    /// </summary>
+    private static bool ConfirmEnableKill(IWin32Window owner)
+        => MessageBox.Show(
+            owner,
+            "「结束高占用进程」会在内存占用超过阈值时直接终止进程，"
+            + "被终止的程序不会有保存提示，未保存的内容将丢失。\n\n"
+            + "游戏、视频剪辑、虚拟机等程序的正常占用就可能超过阈值。"
+            + "建议先在「高占用进程」列表中确认哪些程序会被波及，"
+            + "并把需要保护的程序加入白名单。\n\n"
+            + "确定要启用吗？",
+            "启用前请确认",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2) == DialogResult.Yes;
 
     /// <summary>向卡片追加一行控件（行高自适应，按添加顺序排列）。</summary>
     private static void AddRow(TableLayoutPanel card, Control c)

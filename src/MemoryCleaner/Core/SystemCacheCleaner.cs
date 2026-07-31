@@ -57,7 +57,12 @@ internal static class SystemCacheCleaner
         return missing.Count == 0;
     }
 
-    public static CleanResult Clean()
+    /// <param name="gentle">
+    /// 温和模式：只清空低优先级待机列表，不动 Modified 列表和完整 Standby 列表。
+    /// 完整清空会把前台程序（尤其是游戏）正在依赖的缓存页一并丢弃，使其只能从
+    /// 磁盘重读，产生硬缺页与明显卡顿；温和模式释放量较小但几乎无感。
+    /// </param>
+    public static CleanResult Clean(bool gentle = false)
     {
         var notes = new List<string>();
         if (!IsSupported)
@@ -85,8 +90,15 @@ internal static class SystemCacheCleaner
             }
         }
 
-        Run(MEMORY_LIST_COMMAND.MemoryFlushModifiedList, "清空Modified");
-        Run(MEMORY_LIST_COMMAND.MemoryPurgeStandbyList, "清空Standby");
+        if (gentle)
+        {
+            Run(MEMORY_LIST_COMMAND.MemoryPurgeLowPriorityStandbyList, "清空低优先级Standby");
+        }
+        else
+        {
+            Run(MEMORY_LIST_COMMAND.MemoryFlushModifiedList, "清空Modified");
+            Run(MEMORY_LIST_COMMAND.MemoryPurgeStandbyList, "清空Standby");
+        }
 
         long afterAvail = (long)Core.MemoryInfoProvider.GetSnapshot().AvailPhysBytes;
         long freed = Math.Max(0, afterAvail - beforeAvail);

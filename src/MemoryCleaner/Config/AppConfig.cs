@@ -10,6 +10,11 @@ public sealed class AppConfig
     // ---------- 清理方式开关 ----------
     public bool CleanWorkingSet { get; set; } = true;
     public bool CleanSystemCache { get; set; } = false;       // 需管理员
+    /// <summary>
+    /// 系统缓存的温和模式：只清空低优先级待机页面，保留前台程序正在依赖的缓存。
+    /// 默认开启——完整清空会让游戏等程序的页面被迫从磁盘重读，造成明显卡顿。
+    /// </summary>
+    public bool SystemCacheGentle { get; set; } = true;
     public bool KillHighUsageProcesses { get; set; } = false; // 默认关闭
 
     // ---------- 阈值触发 ----------
@@ -29,10 +34,18 @@ public sealed class AppConfig
     public DayOfWeek WeeklyDay { get; set; } = DayOfWeek.Sunday;
 
     // ---------- 高占用进程清理参数 ----------
-    public int KillThresholdMB { get; set; } = 2048;          // 单进程工作集超过此值才处理
+    // 结束进程不可撤销，默认值取得保守：只拦真正失控/泄漏的进程。
+    // 游戏、创意软件、IDE 正常占用 2～6 GB，阈值过低会造成误杀。
+    public int KillThresholdMB { get; set; } = 8192;          // 单进程工作集超过此值才处理
     public List<string> ProcessWhitelist { get; set; } = new(); // 用户白名单（进程名，不含 .exe）
 
     // ---------- 行为 ----------
+    /// <summary>
+    /// 检测到全屏程序（游戏 / 播放器 / 演示模式）时跳过自动清理。
+    /// 清理会让进程页面重新缺页读回，在实时渲染时是可感知的卡顿。
+    /// 只影响自动触发；手动点「立即清理」始终照常执行。
+    /// </summary>
+    public bool SkipWhenFullscreen { get; set; } = true;
     public bool RunAtStartup { get; set; } = false;
     public bool ShowNotification { get; set; } = true;
     public bool CheckUpdateOnStartup { get; set; } = true;   // 启动时检查更新
