@@ -46,6 +46,15 @@ public sealed class AppConfig
     /// 只影响自动触发；手动点「立即清理」始终照常执行。
     /// </summary>
     public bool SkipWhenFullscreen { get; set; } = true;
+
+    /// <summary>全局热键：按下即立即清理。默认关闭——不主动占用系统级快捷键。</summary>
+    public bool HotkeyEnabled { get; set; } = false;
+    /// <summary>
+    /// 热键的 <c>System.Windows.Forms.Keys</c> 组合值（含修饰键位）。默认 Ctrl+Shift+M。
+    /// 不用 Ctrl+Alt 系列：中文输入法普遍抢占该组合，实测 Ctrl+Alt+字母 基本都注册不上。
+    /// </summary>
+    public int HotkeyValue { get; set; } = (int)(Keys.Control | Keys.Shift | Keys.M);
+
     public bool RunAtStartup { get; set; } = false;
     public bool ShowNotification { get; set; } = true;
     public bool CheckUpdateOnStartup { get; set; } = true;   // 启动时检查更新

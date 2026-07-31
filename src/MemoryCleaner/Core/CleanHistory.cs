@@ -12,14 +12,14 @@ public sealed record CleanRecord(
     int ProcessesTouched);
 
 /// <summary>
-/// 清理历史：环形缓冲保存在内存，附带落盘到 %AppData%\MemoryCleaner\history.json，
+/// 清理历史：环形缓冲保存在内存，附带落盘到数据目录下的 history.json
+/// （位置见 <see cref="Config.AppPaths"/>，便携模式下在 exe 旁边），
 /// 上限 MaxEntries 条，超出丢最旧。读写均容错（损坏即重置）。
 /// </summary>
 public sealed class CleanHistory
 {
     private const int MaxEntries = 200;
-    private static readonly string Path_ = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MemoryCleaner", "history.json");
+    private static readonly string Path_ = Config.AppPaths.Combine("history.json");
     private static readonly JsonSerializerOptions Opts = new() { WriteIndented = false };
 
     private readonly List<CleanRecord> _records = new();

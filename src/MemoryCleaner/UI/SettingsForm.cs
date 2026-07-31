@@ -43,6 +43,8 @@ internal sealed class SettingsForm : Form
     private readonly TextBox txtWhitelist;
 
     private readonly CheckBox chkSkipFullscreen;
+    private readonly CheckBox chkHotkey;
+    private readonly HotkeyBox boxHotkey;
     private readonly CheckBox chkAutoUpdate;
     private readonly CheckBox chkStartup;
     private readonly CheckBox chkNotify;
@@ -176,6 +178,15 @@ internal sealed class SettingsForm : Form
         AddOpt(cardBehavior, chkSkipFullscreen,
             "检测到游戏、全屏播放或演示模式时，自动跳过本次清理，避免画面卡顿。"
             + "手动点「立即清理」不受影响。");
+        chkHotkey = Check("启用全局热键", config.HotkeyEnabled);
+        AddOpt(cardBehavior, chkHotkey,
+            "在任何界面按下热键即立即清理一次。点下方输入框后直接按组合键即可修改，Esc 清空。"
+            + "建议避开 Ctrl+Alt 系列——中文输入法常年占用该组合。");
+        boxHotkey = new HotkeyBox((Keys)config.HotkeyValue) { Width = 180, Font = FTitle };
+        AddRow(cardBehavior, Row(boxHotkey));
+        boxHotkey.Enabled = chkHotkey.Checked;
+        chkHotkey.CheckedChanged += (_, _) => boxHotkey.Enabled = chkHotkey.Checked;
+
         chkAutoUpdate = Check("启动时自动检查更新", config.CheckUpdateOnStartup);
         AddOpt(cardBehavior, chkAutoUpdate, "程序启动时在后台检查 GitHub 是否有新版本，有则提示一键升级。");
         chkStartup = Check("开机自启", StartupManager.IsEnabled());
@@ -228,6 +239,9 @@ internal sealed class SettingsForm : Form
             .ToList();
 
         _config.SkipWhenFullscreen = chkSkipFullscreen.Checked;
+        // 热键勾选了却没设组合键时自动关掉，避免保存出一个不可能生效的状态
+        _config.HotkeyEnabled = chkHotkey.Checked && boxHotkey.Value != Keys.None;
+        _config.HotkeyValue = (int)boxHotkey.Value;
         _config.CheckUpdateOnStartup = chkAutoUpdate.Checked;
         _config.ShowNotification = chkNotify.Checked;
         _config.MinIntervalSeconds = (int)numMinInterval.Value;
@@ -370,6 +384,9 @@ internal sealed class SettingsForm : Form
         ForeColor = TxtSub,
         Font = FSub,
         Margin = new Padding(0, 8, 0, 2),
+        // 卡片是 AutoSize 的：不限宽的话，长文案会把卡片整体撑宽、
+        // 越过滚动区可用宽度，从而冒出一条横向滚动条
+        MaximumSize = new Size(ContentWidth, 0),
     };
 
     private static Label Suffix(string text) => new()

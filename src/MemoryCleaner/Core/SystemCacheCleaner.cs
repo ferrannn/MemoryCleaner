@@ -96,8 +96,35 @@ internal static class SystemCacheCleaner
         }
         else
         {
+            RunFileCacheFlush();
             Run(MEMORY_LIST_COMMAND.MemoryFlushModifiedList, "清空Modified");
             Run(MEMORY_LIST_COMMAND.MemoryPurgeStandbyList, "清空Standby");
+        }
+
+        // 清空系统工作集（系统文件缓存）。把上下限都设成 SIZE_T 最大值是
+        // 记录在案的"释放系统缓存"约定，等价于 SetSystemFileCacheSize(-1,-1,0)。
+        // 属于激进操作，只在完整模式执行。
+        void RunFileCacheFlush()
+        {
+            var info = new SYSTEM_FILECACHE_INFORMATION
+            {
+                MinimumWorkingSet = nuint.MaxValue,
+                MaximumWorkingSet = nuint.MaxValue,
+            };
+
+            int size = Marshal.SizeOf<SYSTEM_FILECACHE_INFORMATION>();
+            IntPtr ptr = Marshal.AllocHGlobal(size);
+            try
+            {
+                Marshal.StructureToPtr(info, ptr, false);
+                int status = NtSetSystemInformation((int)SYSTEM_INFORMATION_CLASS.SystemFileCacheInformationEx, ptr, size);
+                if (status == 0) ok++;
+                else notes.Add($"清空系统工作集 失败 (NTSTATUS=0x{status:X8})");
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(ptr);
+            }
         }
 
         long afterAvail = (long)Core.MemoryInfoProvider.GetSnapshot().AvailPhysBytes;

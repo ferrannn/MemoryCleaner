@@ -3,13 +3,13 @@ using System.Text.Json;
 namespace MemoryCleaner.Config;
 
 /// <summary>
-/// 配置读写，存于 %AppData%/MemoryCleaner/config.json。
+/// 配置读写。位置由 <see cref="AppPaths"/> 决定：默认 %AppData%\MemoryCleaner，
+/// 便携模式下为 exe 同目录。
 /// </summary>
 internal static class ConfigStore
 {
-    private static readonly string Dir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MemoryCleaner");
-    private static readonly string Path_ = Path.Combine(Dir, "config.json");
+    private static readonly string Dir = AppPaths.DataDir;
+    private static readonly string Path_ = AppPaths.Combine("config.json");
 
     private static readonly JsonSerializerOptions Opts = new() { WriteIndented = true };
 

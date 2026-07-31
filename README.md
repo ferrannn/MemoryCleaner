@@ -24,7 +24,7 @@ Windows 用久了内存被各种进程和系统缓存悄悄占满，手动清理
 
 - ✅ **三种清理方式**（可自由组合）
   - 清空工作集（Working Set）— `EmptyWorkingSet`，安全、最常用
-  - 清空系统缓存 / 待机列表（Standby / Modified List）— 需管理员，含**温和模式**
+  - 清空系统缓存 / 待机列表（Standby / Modified / 系统工作集）— 需管理员，含**温和模式**
   - 结束高占用进程 — 默认关闭，开启前需二次确认，强白名单保护
 - ✅ **三种触发方式**（可任意组合）
   - 阈值触发：内存占用超过 X% 自动清理
@@ -35,6 +35,8 @@ Windows 用久了内存被各种进程和系统缓存悄悄占满，手动清理
   - 右键菜单顶部展示最近内存占用**迷你曲线**（sparkline）
   - 清理后气泡提示释放量
 - ✅ **游戏友好**：检测到全屏程序（游戏 / 播放器 / 演示模式）时自动跳过清理，不打断画面
+- ✅ **全局热键**：任何界面按下即清理，组合键可自定义
+- ✅ **便携模式**：程序目录放个 `portable.txt`，配置与历史即写在 exe 旁边，U 盘随身带
 - ✅ **高占用进程列表**：先看清再处理，勾选白名单，绝不盲删
 - ✅ **清理历史日志**：时间 / 触发方式 / 释放量 / 触及进程数，含累计统计
 - ✅ **自动更新**：启动时 / 手动检查新版本，一键下载并自动替换重启
@@ -102,7 +104,8 @@ dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained false \
 
 ## ⚙️ 配置说明
 
-托盘图标 → 右键 → **设置**，或直接编辑 `%AppData%\MemoryCleaner\config.json`：
+托盘图标 → 右键 → **设置**，或直接编辑 `%AppData%\MemoryCleaner\config.json`
+（便携模式下为 exe 同目录的 `config.json`，具体路径见「关于」窗口）：
 
 ```jsonc
 {
@@ -126,6 +129,8 @@ dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained false \
   "ProcessWhitelist": [],           // 进程白名单（清理与结束均跳过，不含 .exe）
 
   "SkipWhenFullscreen": true,       // 全屏程序运行时跳过自动清理
+  "HotkeyEnabled": false,           // 全局热键（按下即清理）
+  "HotkeyValue": 262221,            // Keys 组合值，默认 Ctrl+Shift+M
   "RunAtStartup": false,            // 开机自启
   "ShowNotification": true,         // 清理后通知
   "CheckUpdateOnStartup": true,     // 启动时检查更新
@@ -134,6 +139,14 @@ dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained false \
 ```
 
 > 配置文件加载时会自动**钳制非法数值**，手改也不怕失控。
+
+### 便携模式
+
+在 **exe 所在目录**新建一个空文件 `portable.txt`，重启程序即可。此后 `config.json` 与 `history.json` 都写在 exe 旁边，不再往 `%AppData%` 里放任何东西 —— 适合 U 盘携带或绿色分发。
+
+当前生效的路径可在 **托盘右键 → 关于** 里查看。
+
+> ⚠️ 若程序装在 `Program Files` 等无写权限的位置，便携模式无法生效，会自动回退到 `%AppData%`，「关于」窗口会如实说明。
 
 ---
 
@@ -149,10 +162,10 @@ dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained false \
 
 ```
 src/MemoryCleaner/
-├─ Core/                # 清理器：工作集 / 系统缓存 / 高占用进程 / 历史 / 更新
+├─ Core/                # 清理器：工作集 / 系统缓存 / 高占用进程 / 历史 / 更新 / 全屏检测
 ├─ Scheduler/           # 调度引擎 + 三种触发器
-├─ Config/              # 配置模型 / 持久化 / 开机自启
-├─ UI/                  # 托盘 / 设置 / 进程列表 / 历史 / 内存曲线 / 关于
+├─ Config/              # 配置模型 / 持久化 / 路径解析 / 开机自启
+├─ UI/                  # 托盘 / 设置 / 进程列表 / 历史 / 内存曲线 / 热键 / 关于
 ├─ Native/              # Win32 P/Invoke 声明
 └─ TrayAppContext.cs    # 托盘主逻辑
 ```

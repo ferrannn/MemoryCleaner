@@ -110,7 +110,27 @@ internal static class NativeMethods
     // SystemMemoryListInformation = 0x50
     internal enum SYSTEM_INFORMATION_CLASS
     {
+        SystemFileCacheInformationEx = 0x51,
         SystemMemoryListInformation = 0x50,
+    }
+
+    /// <summary>
+    /// SYSTEM_FILECACHE_INFORMATION。x64 下 SIZE_T 为 8 字节、ULONG 为 4 字节，
+    /// PageFaultCount 后有 4 字节对齐填充，整体 64 字节——必须与内核一致，
+    /// 否则 NtSetSystemInformation 会以 STATUS_INFO_LENGTH_MISMATCH 失败。
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SYSTEM_FILECACHE_INFORMATION
+    {
+        internal nuint CurrentSize;
+        internal nuint PeakSize;
+        internal uint PageFaultCount;
+        internal nuint MinimumWorkingSet;
+        internal nuint MaximumWorkingSet;
+        internal nuint CurrentSizeIncludingTransitionInPages;
+        internal nuint PeakSizeIncludingTransitionInPages;
+        internal uint TransitionRePurposeCount;
+        internal uint Flags;
     }
 
     // MemoryList 子命令
@@ -141,6 +161,20 @@ internal static class NativeMethods
 
     [DllImport("shell32.dll")]
     internal static extern int SHQueryUserNotificationState(out QUERY_USER_NOTIFICATION_STATE pquns);
+
+    // ---------- 全局热键 ----------
+    internal const uint MOD_ALT = 0x0001;
+    internal const uint MOD_CONTROL = 0x0002;
+    internal const uint MOD_SHIFT = 0x0004;
+    internal const uint MOD_WIN = 0x0008;
+    internal const uint MOD_NOREPEAT = 0x4000; // 按住不放只触发一次
+    internal const int WM_HOTKEY = 0x0312;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
     // ---------- 是否管理员 ----------
     [DllImport("shell32.dll")]

@@ -20,6 +20,7 @@ internal sealed class TrayAppContext : ApplicationContext
 
     private readonly CleanHistory _history;
     private readonly MemorySparkline _sparkline;
+    private readonly HotkeyWindow _hotkey;
 
     public TrayAppContext()
     {
@@ -28,6 +29,10 @@ internal sealed class TrayAppContext : ApplicationContext
         _scheduler = new CleanScheduler(_config);
         _scheduler.Cleaned += OnCleaned;
         _scheduler.MemoryUpdated += OnMemoryUpdated;
+
+        _hotkey = new HotkeyWindow();
+        _hotkey.Pressed += () => _scheduler.CleanNow();
+        ApplyHotkey(notifyOnFailure: false);
 
         var menu = new ContextMenuStrip();
 
@@ -160,6 +165,26 @@ internal sealed class TrayAppContext : ApplicationContext
     {
         ConfigStore.Save(_config);
         _scheduler.UpdateConfig(_config);
+        ApplyHotkey(notifyOnFailure: true);
+    }
+
+    /// <summary>
+    /// 应用热键设置。注册失败通常是被别的程序占用了，
+    /// 此时如实告知并把开关关掉，而不是留一个看着启用、实际无效的状态。
+    /// </summary>
+    private void ApplyHotkey(bool notifyOnFailure)
+    {
+        if (_hotkey.Apply(_config.HotkeyEnabled, (Keys)_config.HotkeyValue))
+            return;
+
+        string combo = HotkeyWindow.Format((Keys)_config.HotkeyValue);
+        _config.HotkeyEnabled = false;
+        ConfigStore.Save(_config);
+
+        if (notifyOnFailure)
+            MessageBox.Show(
+                $"热键 {combo} 注册失败，通常是已被其他程序占用。\n\n已关闭全局热键，请换一个组合键再试。",
+                "热键注册失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     // ===================== 自动更新 =====================
@@ -228,6 +253,7 @@ internal sealed class TrayAppContext : ApplicationContext
     {
         // 先停调度器（等待在途回调/清理收尾），再销毁托盘，避免回调访问已释放的 NotifyIcon
         _scheduler.Dispose();
+        _hotkey.Dispose(); // 注销热键，否则重启后同一组合键会注册失败
         _tray.Visible = false;
         _tray.Dispose();
         base.ExitThreadCore();
