@@ -112,12 +112,6 @@ dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained false \
 
 菜单顶部是最近约 5 分钟的内存占用曲线，托盘图标按占用率实时变色（绿 → 橙 → 红）并显示百分比。
 
-### 关于
-
-![关于窗口](./images/about.jpg)
-
-显示当前版本与**配置文件的实际存放位置**，可一键打开该目录。便携模式生效时这里会明确标出。
-
 ---
 
 ## ⚙️ 配置说明
