@@ -1,8 +1,8 @@
 # MemoryCleaner
 
-> A lightweight Windows system-tray memory cleaner with customizable triggers (threshold / interval / scheduled time), multiple clean methods, and an ultra-small single-file build.
+> A lightweight Windows system-tray memory cleaner. Customizable triggers (threshold / interval / scheduled time), multiple clean methods, and it stays out of your way — cleaning is skipped automatically while a fullscreen app or game is running.
 
-轻量级 **Windows 系统托盘** 内存清理工具：可自定义 **阈值 / 定时 / 时间点** 触发，支持多种清理方式，单文件运行、占用极低。
+轻量级 **Windows 系统托盘** 内存清理工具：可自定义 **阈值 / 定时 / 时间点** 触发，支持多种清理方式，单文件运行、占用极低。**玩游戏和全屏时自动让路，不打断画面。**
 
 [![Stars](https://img.shields.io/github/stars/ferrannn/MemoryCleaner?style=flat-square)](https://github.com/ferrannn/MemoryCleaner/stargazers)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -15,6 +15,8 @@
 ## 📖 简介
 
 Windows 用久了内存被各种进程和系统缓存悄悄占满，手动清理又麻烦。MemoryCleaner 常驻系统托盘，实时显示内存占用曲线，并在你设定的条件（占用过高 / 每隔一段时间 / 每天定时）下**自动、安静地清理内存**，全程无需干预。
+
+清理内存本身是有代价的 —— 被清掉的页面需要重新读回，对正在实时渲染的程序就是卡顿。所以本工具在这件事上格外克制：**检测到全屏程序时直接跳过清理**，系统缓存默认走**温和模式**只清低优先级页，白名单里的进程**连工作集都不碰**。
 
 适用于：内存较小的机器、长时间不关机、想让系统自动维持流畅的用户。
 
@@ -70,9 +72,9 @@ Windows 用久了内存被各种进程和系统缓存悄悄占满，手动清理
 | 文件 | 体积 | 优点 | 缺点 | 适合谁 |
 |---|---|---|---|---|
 | **`MemoryCleaner.exe`**（自包含） | ~68 MB | **免安装、零配置**，任何 Win10/11 双击就跑 | 体积大（自带 .NET 运行时） | **绝大多数普通用户（推荐）** |
-| **`MemoryCleaner-fd.exe`**（框架依赖） | ~0.2 MB | 体积极小、启动略快 | 需先装 .NET 8 Desktop Runtime | 已装 .NET 8 / 追求极致体积的用户 |
+| **`MemoryCleaner-fd.exe`**（框架依赖） | ~0.4 MB | 体积极小、启动略快 | 需先装 .NET 8 Desktop Runtime | 已装 .NET 8 / 追求极致体积的用户 |
 
-> 💡 **怎么选**：不想折腾、怕报错 → 下 `MemoryCleaner.exe`；电脑已装过 .NET 8 → 下 `MemoryCleaner-fd.exe`，只有 0.2 MB。
+> 💡 **怎么选**：不想折腾、怕报错 → 下 `MemoryCleaner.exe`；电脑已装过 .NET 8 → 下 `MemoryCleaner-fd.exe`，只有 0.4 MB。
 >
 > 💡 想启用「清理系统缓存」：右键 exe → **以管理员身份运行**。
 
@@ -87,7 +89,7 @@ dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained true \
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
   -p:EnableCompressionInSingleFile=true -o publish
 
-# 框架依赖单文件（极小，~0.2 MB，需 .NET 8 运行时）
+# 框架依赖单文件（极小，~0.4 MB，需 .NET 8 运行时）
 dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained false \
   -p:PublishSingleFile=true -o publish-framework-dependent
 ```
@@ -97,10 +99,24 @@ dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained false \
 ## 🖼️ 效果图
 
 <!-- 截图放在 images/ 目录，用相对路径引用 -->
-![设置界面](./images/settings.png)
-![托盘菜单与内存曲线](./images/tray.png)
 
-> 📌 托盘图标实时变色（绿 → 橙 → 红），右键菜单顶部是最近 5 分钟内存占用曲线。
+### 设置界面
+
+![设置界面](./images/settings.jpg)
+
+清理方式、触发条件、行为三大块卡片式分组，每项都配有说明。「温和模式」作为「清空系统缓存」的子选项，未启用父项时自动灰置。
+
+### 托盘菜单
+
+![托盘菜单与内存曲线](./images/tray.jpg)
+
+菜单顶部是最近约 5 分钟的内存占用曲线，托盘图标按占用率实时变色（绿 → 橙 → 红）并显示百分比。
+
+### 关于
+
+![关于窗口](./images/about.jpg)
+
+显示当前版本与**配置文件的实际存放位置**，可一键打开该目录。便携模式生效时这里会明确标出。
 
 ---
 
@@ -154,9 +170,13 @@ dotnet publish src/MemoryCleaner -c Release -r win-x64 --self-contained false \
 
 ## 🛡️ 安全说明
 
-- **「结束高占用进程」默认关闭**；开启后系统关键进程与白名单进程绝不会被结束。
+- **「结束高占用进程」默认关闭**，是本工具唯一不可逆、可能导致未保存内容丢失的功能。因此：
+  - 勾选时会弹出确认，说明风险
+  - 默认阈值 8192 MB，只拦真正失控的进程 —— 游戏、剪辑软件正常占用 2～6 GB，阈值过低会误杀
+  - 系统关键进程与白名单进程绝不会被结束
 - **「清理系统缓存」需要管理员权限**；非管理员运行时该选项自动灰置。
 - 本工具只做**标准 Win32 内存管理调用**，不注入、不装驱动、不修改其他进程的内存数据。
+- 所有清理动作都有单一入口，受最小间隔限制与防重入保护，不会因配置失误导致连续清理。
 
 ---
 
