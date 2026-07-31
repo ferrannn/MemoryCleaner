@@ -37,18 +37,32 @@ internal static class UpdateChecker
     public static Version CurrentVersion
         => Assembly.GetExecutingAssembly().GetName().Version ?? new Version(1, 0, 0);
 
-    /// <summary>获取最新 Release；网络失败返回 null。</summary>
-    public static async Task<ReleaseInfo?> GetLatestReleaseAsync()
+    /// <summary>
+    /// 获取最新 Release；全部来源都失败返回 null。
+    ///
+    /// 先直连 api.github.com，不通再试 API 镜像——否则在 GitHub 不可达的网络里
+    /// 连"有没有新版本"都查不到，后面的镜像下载也就无从谈起。
+    /// 每个源单独限时，避免几个源都超时时把用户晾在那里。
+    /// </summary>
+    public static async Task<ReleaseInfo?> GetLatestReleaseAsync(CancellationToken ct = default)
     {
-        try
+        foreach (var template in DownloadMirrors.ApiEndpoints)
         {
-            return await Http.GetFromJsonAsync<ReleaseInfo>(
-                $"https://api.github.com/repos/{Repo}/releases/latest");
+            try
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(DownloadMirrors.ApiAttemptTimeout);
+
+                var info = await Http.GetFromJsonAsync<ReleaseInfo>(
+                    string.Format(template, Repo), timeout.Token);
+                if (info != null) return info;
+            }
+            catch
+            {
+                // 换下一个源继续试
+            }
         }
-        catch
-        {
-            return null;
-        }
+        return null;
     }
 
     /// <summary>比较远端版本是否更新。tag 可能带 'v' 前缀。</summary>
@@ -85,11 +99,23 @@ internal static class UpdateChecker
         public static UpdateOutcome Fail(string error) => new(false, error);
     }
 
+    /// <summary>下载进度快照。</summary>
+    public readonly record struct DownloadProgress(long Downloaded, long Total, double BytesPerSecond)
+    {
+        /// <summary>总大小未知时返回 -1。</summary>
+        public int Percent => Total > 0 ? (int)(Downloaded * 100 / Total) : -1;
+    }
+
     /// <summary>
     /// 下载资产并用"自替换"方式更新当前 exe：
     /// 新文件落盘为 .new，校验大小与预期一致后，写脚本在退出后替换并重启。
     /// </summary>
-    public static async Task<UpdateOutcome> DownloadAndApplyAsync(ReleaseAsset asset, IProgress<int>? progress = null)
+    /// <param name="mirror">下载源；null 表示直连 GitHub。</param>
+    public static async Task<UpdateOutcome> DownloadAndApplyAsync(
+        ReleaseAsset asset,
+        DownloadMirror? mirror = null,
+        IProgress<DownloadProgress>? progress = null,
+        CancellationToken ct = default)
     {
         string? currentExe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(currentExe))
@@ -102,29 +128,47 @@ internal static class UpdateChecker
 
         try
         {
+            string url = (mirror ?? DownloadMirrors.All[0]).Build(asset.DownloadUrl);
+
             long downloaded = 0;
-            using (var resp = await Http.GetAsync(asset.DownloadUrl, HttpCompletionOption.ResponseHeadersRead))
+            using (var resp = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct))
             {
                 resp.EnsureSuccessStatusCode();
-                long? total = resp.Content.Headers.ContentLength;
-                await using var src = await resp.Content.ReadAsStreamAsync();
+                long total = resp.Content.Headers.ContentLength ?? asset.Size;
+                await using var src = await resp.Content.ReadAsStreamAsync(ct);
                 await using var dst = File.Create(newPath);
+
                 var buffer = new byte[81920];
+                var sw = Stopwatch.StartNew();
+                long lastReportBytes = 0;
+                var lastReport = TimeSpan.Zero;
                 int n;
-                while ((n = await src.ReadAsync(buffer)) > 0)
+
+                while ((n = await src.ReadAsync(buffer, ct)) > 0)
                 {
-                    await dst.WriteAsync(buffer.AsMemory(0, n));
+                    await dst.WriteAsync(buffer.AsMemory(0, n), ct);
                     downloaded += n;
-                    if (total.HasValue && total > 0)
-                        progress?.Report((int)(downloaded * 100 / total.Value));
+
+                    // 限流上报：每 100ms 一次，避免 UI 线程被刷爆
+                    var now = sw.Elapsed;
+                    if (progress != null && (now - lastReport).TotalMilliseconds >= 100)
+                    {
+                        double secs = (now - lastReport).TotalSeconds;
+                        double bps = secs > 0 ? (downloaded - lastReportBytes) / secs : 0;
+                        progress.Report(new DownloadProgress(downloaded, total, bps));
+                        lastReport = now;
+                        lastReportBytes = downloaded;
+                    }
                 }
+                progress?.Report(new DownloadProgress(downloaded, total, 0));
             }
 
-            // 完整性校验：下载大小必须与 Release 元数据一致
+            // 完整性校验：下载大小必须与 Release 元数据一致。
+            // 加速源返回错误页时也是 200，这一步能把"下了个 HTML"挡住。
             if (asset.Size > 0 && downloaded != asset.Size)
             {
                 try { File.Delete(newPath); } catch { }
-                return UpdateOutcome.Fail($"下载不完整（{downloaded}/{asset.Size} 字节），已中止");
+                return UpdateOutcome.Fail($"下载不完整（{downloaded}/{asset.Size} 字节），可能是该下载源不可靠，建议换一个源");
             }
 
             // 生成自替换 PowerShell 脚本：等当前进程退出 → 校验存在 → 备份 → 替换 → 重启 → 自删
@@ -153,6 +197,11 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
             if (proc == null)
                 return UpdateOutcome.Fail("无法启动更新程序");
             return UpdateOutcome.Ok();
+        }
+        catch (OperationCanceledException)
+        {
+            try { if (File.Exists(newPath)) File.Delete(newPath); } catch { }
+            return UpdateOutcome.Fail("已取消");
         }
         catch (Exception ex)
         {

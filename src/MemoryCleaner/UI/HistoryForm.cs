@@ -19,7 +19,8 @@ internal sealed class HistoryForm : Form
 
         Text = "清理历史";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(560, 460);
+        AppIcon.Apply(this);
+        ClientSize = new Size(UiMetrics.WindowWidth, 460);
         MinimizeBox = false;
         MaximizeBox = false;
         Font = new Font("Microsoft YaHei UI", 9f);

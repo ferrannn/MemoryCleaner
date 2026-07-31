@@ -18,9 +18,22 @@ internal sealed class SettingsForm : Form
     private static readonly Font FSub = new("Microsoft YaHei UI", 8f);
     private static readonly Font FCardHead = new("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
 
-    // 卡片内容区宽度（扣除卡片内边距）。窗口 560 - 滚动区内边距 28 - 纵向滚动条 ≈ 515，
-    // 卡片总宽须小于此值，否则会多出一条横向滚动条。
-    private const int ContentWidth = 476;
+    private const int FormWidth = UiMetrics.WindowWidth;
+    private const int ScrollPaddingV = 14; // 滚动区上下内边距（左右为 0，见下）
+    private const int CardPadding = 18;    // 卡片左右内边距
+
+    /// <summary>
+    /// 卡片统一宽度 = 滚动区整个可用宽度，左右不留页面底色。
+    ///
+    /// 卡片两侧留白会在右侧滚动条旁形成一条明显的白边，很难看；改为通栏后
+    /// 页面底色只出现在卡片之间的横向间隙里，边缘干净。纵向滚动条常驻，
+    /// 必须扣掉它的宽度，否则会多出一条横向滚动条。
+    /// </summary>
+    private static readonly int CardWidth =
+        FormWidth - SystemInformation.VerticalScrollBarWidth;
+
+    /// <summary>卡片内容区宽度（扣除卡片左右内边距）。</summary>
+    private static readonly int ContentWidth = CardWidth - CardPadding * 2;
 
     private readonly AppConfig _config;
     public AppConfig Result => _config;
@@ -59,7 +72,8 @@ internal sealed class SettingsForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(560, 720);
+        AppIcon.Apply(this);
+        ClientSize = new Size(FormWidth, 720);
         BackColor = BgPage;
         Font = FTitle;
 
@@ -77,7 +91,7 @@ internal sealed class SettingsForm : Form
         Controls.Add(bottomBar);
 
         // ===== 滚动内容区 =====
-        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = BgPage, Padding = new Padding(14) };
+        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = BgPage, Padding = new Padding(0, ScrollPaddingV, 0, ScrollPaddingV) };
         Controls.Add(scroll);
         scroll.BringToFront();
 
@@ -87,12 +101,12 @@ internal sealed class SettingsForm : Form
             WrapContents = false,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Width = scroll.ClientSize.Width - 28,
+            Width = scroll.ClientSize.Width,
             Anchor = AnchorStyles.Top | AnchorStyles.Left,
             Margin = new Padding(0),
         };
         scroll.Controls.Add(stack);
-        scroll.Resize += (_, _) => stack.Width = scroll.ClientSize.Width - 28;
+        scroll.Resize += (_, _) => stack.Width = scroll.ClientSize.Width;
 
         // ---------- 卡片：清理方式 ----------
         var cardMethod = Card("清理方式");
@@ -141,7 +155,7 @@ internal sealed class SettingsForm : Form
         AddRow(cardTrigger, txtDailyTimes);
 
         chkWeekly = Check("仅每周", config.WeeklyEnabled);
-        cmbWeekday = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120, Font = FTitle };
+        cmbWeekday = new WheelSafeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120, Font = FTitle };
         cmbWeekday.Items.AddRange(new object[] { "周日", "周一", "周二", "周三", "周四", "周五", "周六" });
         cmbWeekday.SelectedIndex = (int)config.WeeklyDay;
         AddRow(cardTrigger, Row(chkWeekly, cmbWeekday, Suffix("的上述时间触发（勾选后按星期限制）")));
@@ -279,9 +293,13 @@ internal sealed class SettingsForm : Form
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             BackColor = BgCard,
-            Padding = new Padding(16, 8, 16, 14),
+            Padding = new Padding(CardPadding, 10, CardPadding, 16),
             Margin = new Padding(0, 0, 0, 12),
-            Width = ContentWidth + 32, // 卡片总宽（内容 + 左右内边距 32）
+            // 宽度上下限锁死到同一个值：AutoSize 就只能调整高度，
+            // 不会再被长文案撑宽，四张卡片边缘也就对齐了
+            Width = CardWidth,
+            MinimumSize = new Size(CardWidth, 0),
+            MaximumSize = new Size(CardWidth, 0),
             GrowStyle = TableLayoutPanelGrowStyle.AddRows,
         };
         card.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
@@ -398,7 +416,8 @@ internal sealed class SettingsForm : Form
         Margin = new Padding(0, 6, 0, 0),
     };
 
-    private static NumericUpDown Num(int value, int min, int max) => new()
+    // 用 WheelSafe 版本：滚轮翻页时不应把掠过的数值悄悄改掉
+    private static NumericUpDown Num(int value, int min, int max) => new WheelSafeNumericUpDown
     {
         Minimum = min,
         Maximum = max,

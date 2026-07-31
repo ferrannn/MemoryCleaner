@@ -220,16 +220,14 @@ internal sealed class TrayAppContext : ApplicationContext
         }
 
         Info("更新", $"正在下载 {asset.Name}（{asset.Size / 1024.0 / 1024.0:F1} MB），完成后将自动重启…");
-        var outcome = await UpdateChecker.DownloadAndApplyAsync(asset);
-        if (outcome.Success)
+        // 交给下载窗口：选源（含实测延迟）、显示进度、可取消
+        using var dlg = new UpdateDownloadForm(asset, $"{release.TagName}（当前 v{UpdateChecker.CurrentVersion}）");
+        dlg.ShowDialog();
+
+        if (dlg.ReadyToApply)
         {
             // 脚本已就绪，退出当前进程让更新生效
             ExitThread();
-        }
-        else
-        {
-            Info("更新", $"下载失败：{outcome.Error ?? "未知原因"}\n将打开发布页供手动下载。");
-            OpenUrl(release.HtmlUrl);
         }
     }
 

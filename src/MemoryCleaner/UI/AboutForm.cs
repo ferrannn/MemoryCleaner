@@ -11,6 +11,7 @@ internal sealed class AboutForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
+        AppIcon.Apply(this);
         ClientSize = new Size(480, 300); // 高度稍后按内容实算，见构造末尾
         Font = new Font("Microsoft YaHei UI", 9f);
         BackColor = Color.White;

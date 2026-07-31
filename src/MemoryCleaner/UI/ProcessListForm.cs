@@ -23,7 +23,8 @@ internal sealed class ProcessListForm : Form
 
         Text = "高占用进程";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(560, 520);
+        AppIcon.Apply(this);
+        ClientSize = new Size(UiMetrics.WindowWidth, 520);
         Font = new Font("Microsoft YaHei UI", 9f);
         BackColor = Color.FromArgb(245, 246, 248);
 
