@@ -43,26 +43,43 @@ internal sealed class ThresholdTrigger : ICleanTrigger
 internal sealed class CronTimeTrigger : ICleanTrigger
 {
     public string Name => "定时点";
-    private DateTime _lastFireDate = DateTime.MinValue;
+
+    // 手改 config.json 可能写成 8:00，UI 保存的则是 08:00，两种都要认
+    private static readonly string[] TimeFormats = { @"h\:mm", @"hh\:mm" };
+
+    /// <summary>上次触发时刻；MinValue 表示尚未建立基线。</summary>
+    private DateTime _lastFire = DateTime.MinValue;
 
     public bool ShouldFire(DateTime now, AppConfig cfg, MemorySnapshotProvider snapshot)
     {
         if (!cfg.ScheduleEnabled) return false;
 
+        if (_lastFire == DateTime.MinValue)
+        {
+            // 首次求值只登记基线，避免把启动前就已过去的时间点补触发一次
+            _lastFire = now;
+            return false;
+        }
+
         // 每周模式：只在指定星期几触发
         if (cfg.WeeklyEnabled && now.DayOfWeek != cfg.WeeklyDay) return false;
 
-        // 同一天只触发一次（任一匹配时间点命中即可）
-        if (_lastFireDate.Date == now.Date) return false;
-
-        string hhmm = now.ToString("HH:mm");
-        if (cfg.DailyTimes.Contains(hhmm))
+        foreach (var text in cfg.DailyTimes)
         {
-            _lastFireDate = now;
-            return true;
+            if (!TimeSpan.TryParseExact(text.Trim(), TimeFormats, null, out var t)) continue;
+
+            // 判定「今天这个时间点是否已过、且晚于上次触发」，而非精确匹配到分钟。
+            // 精确匹配一旦错过那一分钟就整天丢失，而错过是常态：系统休眠唤醒、
+            // CPU 繁忙导致 Tick 抖动、全屏程序运行期间跳过，都会错过。
+            var todayAt = now.Date + t;
+            if (todayAt <= now && todayAt > _lastFire)
+            {
+                _lastFire = now;
+                return true;
+            }
         }
         return false;
     }
 
-    public void Reset() => _lastFireDate = DateTime.MinValue;
+    public void Reset() => _lastFire = DateTime.MinValue;
 }
