@@ -34,7 +34,25 @@ internal static class UpdateChecker
     public sealed record ReleaseAsset(
         [property: JsonPropertyName("name")] string Name,
         [property: JsonPropertyName("browser_download_url")] string DownloadUrl,
-        [property: JsonPropertyName("size")] long Size);
+        [property: JsonPropertyName("size")] long Size,
+        [property: JsonPropertyName("digest")] string? Digest);
+
+    /// <summary>
+    /// 从 GitHub 资产的 digest 字段解析 64 位 SHA-256。
+    ///
+    /// digest 由 GitHub 服务器在上传时计算并存储（格式 "sha256:&lt;hex&gt;"），
+    /// 发布者无法伪造——这是 v1.3.7.1 起的主校验来源。部分 API 镜像不返回该
+    /// 字段（digest 为 null）时返回 null，调用方回退到 .sha256 侧车资产。
+    /// </summary>
+    public static string? ParseDigest(string? digest)
+    {
+        if (string.IsNullOrWhiteSpace(digest)) return null;
+        // "sha256:xxx" —— 只接受 sha256 算法；其他算法（sha1/md5 等）一律忽略
+        const string prefix = "sha256:";
+        if (!digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+        string hex = digest[prefix.Length..].Trim();
+        return ChecksumVerifier.IsValidSha256Hex(hex) ? hex.ToLowerInvariant() : null;
+    }
 
     public static Version CurrentVersion
         => Assembly.GetExecutingAssembly().GetName().Version ?? new Version(1, 0, 0);
@@ -112,16 +130,37 @@ internal static class UpdateChecker
         return sha.Length == 1 ? sha[0] : null;
     }
 
-    /// <summary>同时解析 exe 资产与其配套的 .sha256 校验资产。</summary>
-    public static (ReleaseAsset? Exe, ReleaseAsset? Checksum) PickUpdateAssets(ReleaseInfo release)
+    /// <summary>
+    /// 解析更新所需的 exe 资产与期望 SHA-256。
+    ///
+    /// 主路径（v1.3.7.1）：exe 资产自带的 GitHub API digest——由 GitHub 服务器
+    /// 在上传时计算，随版本检查的 API 响应一并返回，无需额外请求、发布者无法伪造。
+    ///
+    /// 兜底：API 镜像不返回 digest 时，回退到配套的 .sha256 侧车资产，由调用方
+    /// 通过 <see cref="FetchChecksumAsync"/> 直连 GitHub 拉取内容解析。
+    ///
+    /// 返回的 ExpectedSha256 为 null 表示两个来源都不可用 → 调用方 fail-closed。
+    /// </summary>
+    public static async Task<(ReleaseAsset? Exe, string? ExpectedSha256)> PickUpdateAssetsAsync(
+        ReleaseInfo release, CancellationToken ct = default)
     {
         var exe = PickAsset(release);
         if (exe == null) return (null, null);
-        return (exe, PickChecksumAsset(release, exe));
+
+        // 主路径：exe 资产自带的 API digest
+        string? expected = ParseDigest(exe.Digest);
+        if (expected != null) return (exe, expected);
+
+        // 兜底：侧车资产（若发布者仍上传 .sha256）
+        var checksum = PickChecksumAsset(release, exe);
+        if (checksum != null)
+            expected = await FetchChecksumAsync(checksum, exe.Name, ct);
+
+        return (exe, expected);
     }
 
     /// <summary>
-    /// 直连 GitHub 拉取校验文件内容并解析出目标 exe 的期望哈希。
+    /// 直连 GitHub 拉取 .sha256 侧车资产内容并解析出目标 exe 的期望哈希（兜底路径）。
     ///
     /// 信任锚：这里只用 <paramref name="checksumAsset"/>.DownloadUrl 原样直连
     /// （github.com release 资产），绝不套任何加速前缀——被劫持的镜像永远

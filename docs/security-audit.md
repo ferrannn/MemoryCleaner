@@ -2,7 +2,7 @@
 
 > 审计对象：MemoryCleaner **v1.36** 源码
 > 审计时间：2026-08-01
-> 加固版本：**v1.3.7**（本仓库当前代码）
+> 加固版本：**v1.3.7**（SHA-256 侧车校验）→ **v1.3.7.1**（改为 GitHub API digest 校验，见第八节）
 > 审计范围：全部业务源码（17 个文件）+ Native 声明 + manifest + git 历史
 
 ---
@@ -166,9 +166,11 @@ TrayAppContext.CheckForUpdateAsync
 
 ---
 
-## 六、发布要求（重要）
+## 六、发布要求
 
-从 v1.3.7 起，**每个 GitHub release 必须附带 `.sha256` 侧车文件**，否则所有客户端自动更新被冻结（fail-closed）。
+### v1.3.7（侧车校验）
+
+v1.3.7 要求每个 GitHub release **必须附带 `.sha256` 侧车文件**，否则所有 v1.3.7 客户端自动更新被冻结（fail-closed）。
 
 ```powershell
 # 对每个要上传的产物执行一次
@@ -176,6 +178,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\make-sha256.ps1 -Path .\publish
 ```
 
 把生成的 `MemoryCleaner.exe.sha256` 一起传到 GitHub Release。侧车文件格式：小写 64 位十六进制 + 双空格 + 文件名，ASCII 无 BOM 无换行——与 `ChecksumVerifier.TryParse` 接受格式一致。
+
+### v1.3.7.1（API digest 校验，侧车可选）
+
+v1.3.7.1 起客户端改用 **GitHub API 返回的资产 `digest`** 做校验，**不再强制要求侧车文件**。release 只需传 exe；侧车可作为可选兜底继续上传（客户端仍优先用 digest）。详见第八节。
 
 ---
 
@@ -187,3 +193,53 @@ powershell -ExecutionPolicy Bypass -File .\tools\make-sha256.ps1 -Path .\publish
 - **延迟**：提示"发现新版本"前多一次小的直连请求（典型 <1s，GitHub 直连挂时最坏 15s——此时反正拒绝更新）。
 - **路径边界**：含单引号/引号的路径从"拒绝"变为"允许"（环境变量安全携带）；不再写临时 `.ps1`；`.bak` 备份保留。
 - **镜像被篡改**：现在得到清晰"SHA-256 校验不通过…换源重试"，镜像只做速度特性，永非信任边界。
+
+---
+
+## 八、v1.3.7.1 加固：改用 GitHub API digest 校验（方案 B）
+
+### 8.1 动机
+
+v1.3.7 用 `.sha256` 侧车文件做校验，要求发布时每个 exe 额外传一个侧车（共 4 个文件）。用户希望**少两个文件**。
+
+方案 B 利用一个决定性事实：**GitHub 服务器在上传每个 release 资产时，会自动计算并存储其 SHA-256 `digest`**，随 API 响应返回。这意味着：
+
+- 校验哈希**内建在 GitHub API 里**，发布者无法伪造（想改 digest 只能改 GitHub 上的文件本身，那会改 digest）
+- 版本检查的 API 响应已含 digest → **零额外请求**
+- release 只需传 exe，**不需要侧车文件**
+
+### 8.2 新数据流
+
+```
+TrayAppContext.CheckForUpdateAsync
+  1. release = GetLatestReleaseAsync()                    （不变，API + API 镜像）
+  2. IsNewer(release)                                     （不变）
+  3. (exe, expectedSha256) = PickUpdateAssetsAsync(release)
+       - 主路径：ParseDigest(exe.Digest)    —— exe 资产自带 GitHub API digest
+       - 兜底：digest 缺失时，若发布者仍传 .sha256 侧车资产 → FetchChecksumAsync 直连拉取解析
+  4. expectedSha256 == null → fail-closed：提示手动下载，打开发布页；return
+  5. 有值 → 现有"发现新版本"提示 → UpdateDownloadForm(exe, expectedSha256, …)
+  6. 表单：选镜像 → 下载 → 边流式计算 SHA-256 → 比对 → -EncodedCommand 自替换
+  7. ExitThread()                                         （不变）
+```
+
+### 8.3 关键改动
+
+| 文件 | 改动 |
+|---|---|
+| `src/MemoryCleaner/Core/UpdateChecker.cs` | `ReleaseAsset` 加 `digest` 字段（`JsonPropertyName("digest")`）；新增 `ParseDigest`（只认 `sha256:` 前缀 + 64-hex）；`PickUpdateAssets` → `PickUpdateAssetsAsync`，返回 `(Exe, ExpectedSha256)`，主路径 digest、兜底侧车 |
+| `src/MemoryCleaner/TrayAppContext.cs` | `CheckForUpdateAsync` 改调 `PickUpdateAssetsAsync`，digest 主路径 + 侧车兜底 |
+| `src/MemoryCleaner/MemoryCleaner.csproj` | 版本 1.3.7 → **1.3.7.1** |
+| `tests/MemoryCleaner.Core.Tests/` | 适配新签名；新增 `ParseDigest` 测试、`PickUpdateAssetsAsync` 主/兜底测试、JSON 反序列化映射测试（**47 个用例全绿**） |
+| `CLAUDE.md` | 安全约束更新：校验来源改为 digest 主路径 + 侧车兜底；发布不再强制侧车 |
+
+### 8.4 安全语义
+
+- **主路径**：`exe.Digest` 来自 GitHub API，服务器计算 → 与 v1.3.7 的侧车相比，**信任链更短、发布者伪造面更小**。
+- **兜底**：API 镜像不返回 digest 时，回退拉 `.sha256` 侧车（若发布者传了）。两条路径都**绝不套镜像前缀**，fail-closed 不变量不变。
+- **诚实说明的风险**：`digest` 不在 GitHub 公开 API 契约里（较新字段），部分镜像/代理可能不返回。兜底路径已覆盖；若既不返回 digest 又无侧车 → 拒绝更新（fail-closed）。
+
+### 8.5 版本升级路径
+
+- **v1.3.6 → v1.3.7.1**：v1.3.6 走旧的大小校验直接升到 1.3.7.1，无门槛。
+- **v1.3.7 → v1.3.7.1**：v1.3.7 客户端 `IsNewer` 用 `Version` 比较，`1.3.7.1` > `1.3.7` → 触发升级。新客户端用 digest 校验。

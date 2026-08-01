@@ -204,9 +204,10 @@ internal sealed class TrayAppContext : ApplicationContext
             return;
         }
 
-        // 有新版本。先取官方 SHA-256 校验文件（直连 GitHub，不经镜像），
-        // 拿不到就 fail-closed：绝不下载一个无法校验完整性的 exe。
-        var (exe, checksum) = UpdateChecker.PickUpdateAssets(release);
+        // 有新版本。取期望 SHA-256：主路径用 GitHub API 返回的资产 digest
+        //（GitHub 服务器计算，发布者无法伪造），digest 缺失时回退到 .sha256
+        // 侧车资产。取不到就 fail-closed：绝不下载一个无法校验完整性的 exe。
+        var (exe, expectedSha256) = await UpdateChecker.PickUpdateAssetsAsync(release);
         if (exe == null)
         {
             Info("更新", "未找到可下载的程序文件，将打开发布页。");
@@ -214,7 +215,6 @@ internal sealed class TrayAppContext : ApplicationContext
             return;
         }
 
-        string? expectedSha256 = await UpdateChecker.FetchChecksumAsync(checksum, exe.Name);
         if (expectedSha256 == null)
         {
             Info("更新", "无法获取官方 SHA-256 校验文件，为保证安全已禁用自动更新。\n\n请到发布页手动下载并校验后使用。");
