@@ -204,24 +204,34 @@ internal sealed class TrayAppContext : ApplicationContext
             return;
         }
 
-        // 有新版本
-        string notes = string.IsNullOrWhiteSpace(release.Body) ? "" : $"\n\n更新内容：\n{TrimNotes(release.Body)}";
-        var r = MessageBox.Show(
-            $"发现新版本 {release.TagName}（当前 v{UpdateChecker.CurrentVersion}）。{notes}\n\n是否立即下载并更新？",
-            "发现新版本", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
-        if (r != DialogResult.Yes) return;
-
-        var asset = UpdateChecker.PickAsset(release);
-        if (asset == null)
+        // 有新版本。先取官方 SHA-256 校验文件（直连 GitHub，不经镜像），
+        // 拿不到就 fail-closed：绝不下载一个无法校验完整性的 exe。
+        var (exe, checksum) = UpdateChecker.PickUpdateAssets(release);
+        if (exe == null)
         {
             Info("更新", "未找到可下载的程序文件，将打开发布页。");
             OpenUrl(release.HtmlUrl);
             return;
         }
 
-        Info("更新", $"正在下载 {asset.Name}（{asset.Size / 1024.0 / 1024.0:F1} MB），完成后将自动重启…");
-        // 交给下载窗口：选源（含实测延迟）、显示进度、可取消
-        using var dlg = new UpdateDownloadForm(asset, $"{release.TagName}（当前 v{UpdateChecker.CurrentVersion}）");
+        string? expectedSha256 = await UpdateChecker.FetchChecksumAsync(checksum, exe.Name);
+        if (expectedSha256 == null)
+        {
+            Info("更新", "无法获取官方 SHA-256 校验文件，为保证安全已禁用自动更新。\n\n请到发布页手动下载并校验后使用。");
+            OpenUrl(release.HtmlUrl);
+            return;
+        }
+
+        string notes = string.IsNullOrWhiteSpace(release.Body) ? "" : $"\n\n更新内容：\n{TrimNotes(release.Body)}";
+        var r = MessageBox.Show(
+            $"发现新版本 {release.TagName}（当前 v{UpdateChecker.CurrentVersion}）。{notes}\n\n是否立即下载并更新？",
+            "发现新版本", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+        if (r != DialogResult.Yes) return;
+
+        Info("更新", $"正在下载 {exe.Name}（{exe.Size / 1024.0 / 1024.0:F1} MB），完成后将自动重启…");
+        // 交给下载窗口：选源（含实测延迟）、显示进度、可取消。
+        // 校验和已在此取到并传下去，窗口只做下载 + 哈希比对 + 自替换。
+        using var dlg = new UpdateDownloadForm(exe, expectedSha256, $"{release.TagName}（当前 v{UpdateChecker.CurrentVersion}）");
         dlg.ShowDialog();
 
         if (dlg.ReadyToApply)

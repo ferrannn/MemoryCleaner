@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace MemoryCleaner.Core;
@@ -92,6 +94,57 @@ internal static class UpdateChecker
             a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// 在 release 里找与 <paramref name="exe"/> 配套的校验文件：
+    /// 优先 &lt;exe名&gt;.sha256，其次唯一一个 .sha256 资产；都没有返回 null。
+    /// </summary>
+    public static ReleaseAsset? PickChecksumAsset(ReleaseInfo release, ReleaseAsset exe)
+    {
+        if (release.Assets == null || release.Assets.Length == 0) return null;
+
+        var exact = release.Assets.FirstOrDefault(a =>
+            string.Equals(a.Name, exe.Name + ".sha256", StringComparison.OrdinalIgnoreCase));
+        if (exact != null) return exact;
+
+        var sha = release.Assets
+            .Where(a => a.Name.EndsWith(".sha256", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        return sha.Length == 1 ? sha[0] : null;
+    }
+
+    /// <summary>同时解析 exe 资产与其配套的 .sha256 校验资产。</summary>
+    public static (ReleaseAsset? Exe, ReleaseAsset? Checksum) PickUpdateAssets(ReleaseInfo release)
+    {
+        var exe = PickAsset(release);
+        if (exe == null) return (null, null);
+        return (exe, PickChecksumAsset(release, exe));
+    }
+
+    /// <summary>
+    /// 直连 GitHub 拉取校验文件内容并解析出目标 exe 的期望哈希。
+    ///
+    /// 信任锚：这里只用 <paramref name="checksumAsset"/>.DownloadUrl 原样直连
+    /// （github.com release 资产），绝不套任何加速前缀——被劫持的镜像永远
+    /// 喂不进绑定哈希。任何失败返回 null（fail-closed）。
+    /// </summary>
+    public static async Task<string?> FetchChecksumAsync(
+        ReleaseAsset? checksumAsset, string exeAssetName, CancellationToken ct = default)
+    {
+        if (checksumAsset == null) return null;
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+
+            string content = await Http.GetStringAsync(checksumAsset.DownloadUrl, timeout.Token);
+            return ChecksumVerifier.TryParse(content, exeAssetName);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>更新结果。</summary>
     public readonly record struct UpdateOutcome(bool Success, string? Error)
     {
@@ -108,11 +161,20 @@ internal static class UpdateChecker
 
     /// <summary>
     /// 下载资产并用"自替换"方式更新当前 exe：
-    /// 新文件落盘为 .new，校验大小与预期一致后，写脚本在退出后替换并重启。
+    /// 新文件落盘为 .new，边下载边算 SHA-256，与 <paramref name="expectedSha256"/>
+    /// 比对通过后，用 PowerShell -EncodedCommand 在退出后替换并重启。
+    ///
+    /// 安全不变量：
+    ///   - 完整性校验 fail-closed——入口就要求 <paramref name="expectedSha256"/> 是
+    ///     合法 64 位十六进制，下载后哈希不符一律拒绝替换（删 .new）。
+    ///   - 自替换脚本不落盘：以 -EncodedCommand 传递固定脚本体，所有路径经
+    ///     ProcessStartInfo.Environment 环境变量传入，脚本体内零字符串插值，
+    ///     从根上消除 %TEMP% 固定名脚本提权与路径注入。
     /// </summary>
-    /// <param name="mirror">下载源；null 表示直连 GitHub。</param>
+    /// <param name="mirror">下载源；null 表示直连 GitHub。仅加速 exe 载荷，校验和永远直连。</param>
     public static async Task<UpdateOutcome> DownloadAndApplyAsync(
         ReleaseAsset asset,
+        string expectedSha256,
         DownloadMirror? mirror = null,
         IProgress<DownloadProgress>? progress = null,
         CancellationToken ct = default)
@@ -122,9 +184,9 @@ internal static class UpdateChecker
             return UpdateOutcome.Fail("无法确定当前程序路径");
         string newPath = currentExe + ".new";
 
-        // 路径安全：拒绝含单引号的路径（会破坏 PS1 字符串插值）
-        if (currentExe.Contains('\'') || newPath.Contains('\''))
-            return UpdateOutcome.Fail("程序路径含特殊字符，无法自动更新");
+        // 入口即校验：期望哈希不合法直接拒绝，不开始下载
+        if (!ChecksumVerifier.IsValidSha256Hex(expectedSha256))
+            return UpdateOutcome.Fail("SHA-256 校验信息无效，已拒绝更新");
 
         try
         {
@@ -138,6 +200,8 @@ internal static class UpdateChecker
                 await using var src = await resp.Content.ReadAsStreamAsync(ct);
                 await using var dst = File.Create(newPath);
 
+                using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+
                 var buffer = new byte[81920];
                 var sw = Stopwatch.StartNew();
                 long lastReportBytes = 0;
@@ -147,6 +211,7 @@ internal static class UpdateChecker
                 while ((n = await src.ReadAsync(buffer, ct)) > 0)
                 {
                     await dst.WriteAsync(buffer.AsMemory(0, n), ct);
+                    hash.AppendData(buffer.AsSpan(0, n));
                     downloaded += n;
 
                     // 限流上报：每 100ms 一次，避免 UI 线程被刷爆
@@ -161,39 +226,44 @@ internal static class UpdateChecker
                     }
                 }
                 progress?.Report(new DownloadProgress(downloaded, total, 0));
+
+                string computed = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+                if (!ChecksumVerifier.ConstantTimeEquals(computed, expectedSha256))
+                {
+                    try { File.Delete(newPath); } catch { }
+                    return UpdateOutcome.Fail("SHA-256 校验不通过，下载内容可能被篡改或文件损坏，已拒绝更新。建议换一个下载源重试");
+                }
             }
 
-            // 完整性校验：下载大小必须与 Release 元数据一致。
-            // 加速源返回错误页时也是 200，这一步能把"下了个 HTML"挡住。
+            // 大小快速失败：加速源返回错误页时也是 200，这一步能把"下了个 HTML"挡住。
+            // 放在哈希校验之后，作为冗余防线（哈希才是权威）。
             if (asset.Size > 0 && downloaded != asset.Size)
             {
                 try { File.Delete(newPath); } catch { }
                 return UpdateOutcome.Fail($"下载不完整（{downloaded}/{asset.Size} 字节），可能是该下载源不可靠，建议换一个源");
             }
 
-            // 生成自替换 PowerShell 脚本：等当前进程退出 → 校验存在 → 备份 → 替换 → 重启 → 自删
-            string pid = Environment.ProcessId.ToString();
-            string backupPath = currentExe + ".bak";
-            string ps1 = Path.Combine(Path.GetTempPath(), "mc_update.ps1");
-            await File.WriteAllTextAsync(ps1, $@"
-try {{ Wait-Process -Id {pid} -Timeout 60 -ErrorAction SilentlyContinue }} catch {{}}
-Start-Sleep -Milliseconds 500
-try {{
-  Copy-Item -LiteralPath '{currentExe}' -Destination '{backupPath}' -Force -ErrorAction SilentlyContinue
-  Move-Item -LiteralPath '{newPath}' -Destination '{currentExe}' -Force
-  Start-Process -FilePath '{currentExe}'
-}} catch {{}}
-Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
-");
-
-            using var proc = Process.Start(new ProcessStartInfo
+            // 自替换：脚本体固定、路径全部经环境变量传入，避免字符串插值注入。
+            // 等当前进程退出 → 备份 → 替换 → 重启。脚本随 -EncodedCommand 走，
+            // 不落盘、无需自删。
+            //
+            // 注意：不要给 Arguments 加 -WindowStyle Hidden——实测在 Win11 的
+            // Windows PowerShell 5.1 下，该参数会让 -EncodedCommand 脚本静默不执行
+            // （退出码 -1）。隐藏窗口靠 CreateNoWindow + WindowStyle 属性即可。
+            var psi = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{ps1}\"",
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -EncodedCommand {UpdateCommand}",
                 CreateNoWindow = true,
                 UseShellExecute = false,
                 WindowStyle = ProcessWindowStyle.Hidden,
-            });
+            };
+            psi.Environment["MC_PID"] = Environment.ProcessId.ToString();
+            psi.Environment["MC_CURRENT_EXE"] = currentExe;
+            psi.Environment["MC_NEW_EXE"] = newPath;
+            psi.Environment["MC_BACKUP_EXE"] = currentExe + ".bak";
+
+            using var proc = Process.Start(psi);
             if (proc == null)
                 return UpdateOutcome.Fail("无法启动更新程序");
             return UpdateOutcome.Ok();
@@ -209,4 +279,18 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
             return UpdateOutcome.Fail(ex.Message);
         }
     }
+
+    /// <summary>
+    /// 自替换脚本（UTF-16LE Base64 后作为 -EncodedCommand 传入）。
+    /// 脚本体是固定常量，不含任何插值；所有路径来自 $env:MC_*。
+    /// </summary>
+    private static string UpdateCommand
+        => Convert.ToBase64String(Encoding.Unicode.GetBytes(
+            "try { Wait-Process -Id $env:MC_PID -Timeout 60 -ErrorAction SilentlyContinue } catch {}\n"
+          + "Start-Sleep -Milliseconds 500\n"
+          + "try {\n"
+          + "  Copy-Item -LiteralPath $env:MC_CURRENT_EXE -Destination $env:MC_BACKUP_EXE -Force -ErrorAction SilentlyContinue\n"
+          + "  Move-Item -LiteralPath $env:MC_NEW_EXE -Destination $env:MC_CURRENT_EXE -Force\n"
+          + "  Start-Process -FilePath $env:MC_CURRENT_EXE\n"
+          + "} catch {}\n"));
 }

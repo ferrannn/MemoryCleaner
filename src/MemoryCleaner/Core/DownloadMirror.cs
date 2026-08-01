@@ -26,6 +26,10 @@ internal static class DownloadMirrors
     // 均为实测可用（对 release 文件发 Range 请求能拿到 206）。
     // 加速服务时有兴废，界面会按实测延迟排序并把不可用的标出来，
     // 所以这里失效一两个也不影响使用。
+    //
+    // 安全不变量：这些前缀只加速 exe 载荷的下载，绝不能被用于拉取 .sha256
+    // 校验文件。绑定哈希必须来自 GitHub 直连（见 UpdateChecker.FetchChecksumAsync
+    // 从不调用 Build）。镜像源只提供速度，永远不是信任边界。
     public static readonly DownloadMirror[] All =
     {
         new("GitHub 直连", ""),

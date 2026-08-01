@@ -13,6 +13,7 @@ internal sealed class UpdateDownloadForm : Form
     private static readonly Color Accent = Color.FromArgb(46, 117, 222);
 
     private readonly UpdateChecker.ReleaseAsset _asset;
+    private readonly string? _expectedSha256;    // null = 完整性不可用，禁用下载
     private readonly ComboBox _cmbSource;
     private readonly ProgressBar _bar;
     private readonly Label _status;
@@ -28,9 +29,10 @@ internal sealed class UpdateDownloadForm : Form
     /// <summary>下载并写好自替换脚本后为 true，调用方应退出进程让更新生效。</summary>
     public bool ReadyToApply { get; private set; }
 
-    public UpdateDownloadForm(UpdateChecker.ReleaseAsset asset, string versionText)
+    public UpdateDownloadForm(UpdateChecker.ReleaseAsset asset, string? expectedSha256, string versionText)
     {
         _asset = asset;
+        _expectedSha256 = expectedSha256;
         _latency = new int[DownloadMirrors.All.Length];
 
         Text = "下载更新";
@@ -104,6 +106,14 @@ internal sealed class UpdateDownloadForm : Form
             else { DialogResult = DialogResult.Cancel; Close(); }
         };
         Controls.Add(_btnCancel);
+
+        // 完整性不可用（拿不到 .sha256）时禁止下载：绝不下载一个无法校验的 exe
+        if (_expectedSha256 == null)
+        {
+            _btnStart.Enabled = false;
+            _cmbSource.Enabled = false;
+            _status.Text = "无法获取官方 SHA-256 校验文件，自动更新已禁用。请到发布页手动下载。";
+        }
 
         Shown += (_, _) => _ = ProbeAllAsync();
     }
@@ -181,6 +191,13 @@ internal sealed class UpdateDownloadForm : Form
     {
         if (_downloading) return;
 
+        // 防御纵深：完整性不可用绝不下发（UI 已禁用按钮，此处再兜一层）
+        if (_expectedSha256 == null)
+        {
+            _status.Text = "无法获取官方 SHA-256 校验文件，自动更新已禁用。请到发布页手动下载。";
+            return;
+        }
+
         int idx = _cmbSource.SelectedIndex;
         if (idx < 0) return;
         var mirror = DownloadMirrors.All[idx];
@@ -213,7 +230,8 @@ internal sealed class UpdateDownloadForm : Form
                 : $"已下载 {FormatBytes(p.Downloaded)}   速度 {FormatBytes((long)p.BytesPerSecond)}/s";
         });
 
-        var outcome = await UpdateChecker.DownloadAndApplyAsync(_asset, mirror, progress, _cts.Token);
+        // 按钮禁用态已保证此处非 null（见构造函数完整性判断）
+        var outcome = await UpdateChecker.DownloadAndApplyAsync(_asset, _expectedSha256!, mirror, progress, _cts.Token);
 
         _downloading = false;
         if (outcome.Success)
