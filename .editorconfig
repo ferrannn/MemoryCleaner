@@ -1,0 +1,45 @@
+# MemoryCleaner 代码规范
+# 采用"务实"策略：只对能反映真实问题的规则设 warning，避免被低价值规则淹没。
+
+root = true
+
+[*]
+charset = utf-8-bom
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,csx}]
+indent_style = space
+indent_size = 4
+
+# ---------- .NET 内置分析器（随 SDK 提供，无需额外包） ----------
+
+# 将 IDE 提示错误视为警告（不给 suggestion，避免噪音）
+dotnet_analyzer_diagnostic.severity = default
+
+# 可空性：字段/属性初始化
+# IDE0059：未使用的赋值
+dotnet_diagnostic.IDE0059.severity = suggestion
+# CS8600：将 null 赋值给非空引用类型
+dotnet_diagnostic.CS8600.severity = warning
+# CS8602：解引用可能为 null
+dotnet_diagnostic.CS8602.severity = warning
+# CS8604：将可能的 null 引用作为参数
+dotnet_diagnostic.CS8604.severity = warning
+# CS8618：不可为 null 的字段未初始化
+dotnet_diagnostic.CS8618.severity = suggestion
+
+# 并发/资源
+# CA2000：释放对象（P/Invoke 句柄等）
+dotnet_diagnostic.CA2000.severity = suggestion
+
+# 异常
+# CA2200：重新抛出以保留堆栈
+dotnet_diagnostic.CA2200.severity = suggestion
+
+# 提示等级
+csharp_style_var_elsewhere = true:suggestion
+
+[*.md]
+trim_trailing_whitespace = false
